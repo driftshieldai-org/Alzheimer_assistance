@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react'; // useRef added for file input
 import { 
   Brain, 
   ArrowLeft, 
@@ -6,7 +6,9 @@ import {
   Video, 
   CheckCircle, 
   Mic, 
-  Upload
+  Upload, 
+  CloudUpload, // New icon for drag/drop
+  ImageIcon // New icon for file selection
 } from 'lucide-react';
 
 export default function MemoryMateApp() {
@@ -15,17 +17,25 @@ export default function MemoryMateApp() {
 
   // --- SignUp State Variables ---
   const [name, setName] = useState('');
-  const [signupUserId, setSignupUserId] = useState(''); // Changed from signupEmail to signupUserId
+  const [signupUserId, setSignupUserId] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [signupErrorMsg, setSignupErrorMsg] = useState('');
   const [isSignupLoading, setIsSignupLoading] = useState(false);
 
   // --- Login State Variables ---
-  const [loginUserId, setLoginUserId] = useState(''); // Changed from loginEmail to loginUserId
+  const [loginUserId, setLoginUserId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
   const [isLoginLoading, setIsLoginLoading] = useState(false); 
+
+  // --- Photo Upload State Variables --- NEW
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoDescription, setPhotoDescription] = useState('');
+  const [photoDate, setPhotoDate] = useState('');
+  const [photoUploadErrorMsg, setPhotoUploadErrorMsg] = useState('');
+  const [isPhotoUploading, setIsPhotoUploading] = useState(false);
+  const fileInputRef = useRef(null); // Ref for hidden file input
 
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
@@ -39,13 +49,12 @@ export default function MemoryMateApp() {
     return () => clearTimeout(timer);
   }, [showSuccess]);
 
-
   // --- handleLogin Function ---
   const handleLogin = async () => {
     setIsLoginLoading(true);
     setLoginErrorMsg('');
 
-    if (!loginUserId || !loginPassword) { // Validate userId
+    if (!loginUserId || !loginPassword) {
       setLoginErrorMsg('Please enter both User ID and password.');
       setIsLoginLoading(false);
       return;
@@ -55,7 +64,7 @@ export default function MemoryMateApp() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: loginUserId, password: loginPassword }) // Send userId
+        body: JSON.stringify({ userId: loginUserId, password: loginPassword })
       });
 
       const contentType = response.headers.get("content-type");
@@ -69,7 +78,7 @@ export default function MemoryMateApp() {
 
       if (response.ok) {
         localStorage.setItem('token', data.token);
-        localStorage.setItem('userId', data.user.userId); // Store userId instead of userName
+        localStorage.setItem('userId', data.user.userId);
         
         setLoginUserId(''); setLoginPassword('');
         setCurrentScreen('dashboard');
@@ -95,7 +104,7 @@ export default function MemoryMateApp() {
       return;
     }
 
-    if (!name || !signupUserId || !signupPassword) { // Validate userId
+    if (!name || !signupUserId || !signupPassword) {
       setSignupErrorMsg('Please fill out all fields.');
       setIsSignupLoading(false);
       return;
@@ -105,7 +114,7 @@ export default function MemoryMateApp() {
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, userId: signupUserId, password: signupPassword }) // Send userId
+        body: JSON.stringify({ name, userId: signupUserId, password: signupPassword })
       });
 
       const contentType = response.headers.get("content-type");
@@ -119,7 +128,7 @@ export default function MemoryMateApp() {
 
       if (response.ok) {
         localStorage.setItem('token', data.token);
-        localStorage.setItem('userId', data.user.userId); // Store userId
+        localStorage.setItem('userId', data.user.userId);
         
         setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
         setCurrentScreen('dashboard');
@@ -134,14 +143,117 @@ export default function MemoryMateApp() {
     }
   };
 
+  // --- NEW: handlePhotoUpload Function ---
+  const handlePhotoUpload = async (e) => {
+    e.preventDefault(); // Prevent default form submission if any
+    setIsPhotoUploading(true);
+    setPhotoUploadErrorMsg('');
+
+    if (!photoFile) {
+      setPhotoUploadErrorMsg('Please select a photo to upload.');
+      setIsPhotoUploading(false);
+      return;
+    }
+    if (!photoDescription) {
+      setPhotoUploadErrorMsg('Please add a description for the photo.');
+      setIsPhotoUploading(false);
+      return;
+    }
+    if (!photoDate) {
+      setPhotoUploadErrorMsg('Please select the date the photo was taken.');
+      setIsPhotoUploading(false);
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        setPhotoUploadErrorMsg('You must be logged in to upload photos.');
+        setIsPhotoUploading(false);
+        setCurrentScreen('login'); // Redirect to login if no token
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('photo', photoFile);
+    formData.append('description', photoDescription);
+    formData.append('photoDate', photoDate);
+
+    try {
+      const response = await fetch('/api/photos/upload', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}` // Send JWT token for authentication
+        },
+        body: formData // Multer handles multipart/form-data
+      });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const textError = await response.text();
+        console.error("Server returned HTML or text instead of JSON (Photo Upload):", textError);
+        throw new Error("Server configuration error for photo upload. Check console.");
+      }
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setPhotoFile(null); // Clear form
+        setPhotoDescription('');
+        setPhotoDate('');
+        setShowSuccess(true); // Trigger success modal
+      } else {
+        setPhotoUploadErrorMsg(data.message || 'Photo upload failed. Please try again.');
+      }
+    } catch (err) {
+      console.error("Photo Upload Error:", err);
+      // More specific error for large files handled by Multer limit
+      if (err.message.includes("File too large")) {
+          setPhotoUploadErrorMsg("The photo file is too large (max 5MB).");
+      } else {
+          setPhotoUploadErrorMsg('Failed to connect to the server for photo upload. Check browser console.');
+      }
+    } finally {
+      setIsPhotoUploading(false);
+    }
+  };
+
+  // --- NEW: handleFileChange and Drag/Drop functions for photo upload ---
+  const handleFileChange = (e) => {
+    if (e.target.files[0]) {
+      setPhotoFile(e.target.files[0]);
+      setPhotoUploadErrorMsg('');
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setPhotoFile(e.dataTransfer.files[0]);
+      setPhotoUploadErrorMsg('');
+    }
+  };
+
+  const handleClearPhoto = () => {
+    setPhotoFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = null; // Clear input visually
+    }
+  };
+
+
   // Reusable Back Button Component
   const BackButton = ({ onClick }) => (
     <button 
       onClick={() => {
-        setSignupErrorMsg(''); // Clear signup errors when going back
-        setLoginErrorMsg(''); // Clear login errors when going back
-        setLoginUserId(''); setLoginPassword(''); // Clear login form
-        setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword(''); // Clear signup form
+        // Clear all errors and form states when going back
+        setSignupErrorMsg(''); setLoginErrorMsg(''); setPhotoUploadErrorMsg('');
+        setLoginUserId(''); setLoginPassword('');
+        setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
+        setPhotoFile(null); setPhotoDescription(''); setPhotoDate('');
         onClick();
       }}
       className="flex items-center justify-center w-full max-w-xl bg-slate-200 text-blue-900 text-3xl font-bold py-6 px-8 rounded-2xl shadow-md border-4 border-slate-300 hover:bg-slate-300 active:bg-slate-400 transition-colors mt-6"
@@ -190,12 +302,12 @@ export default function MemoryMateApp() {
         )}
 
         <div>
-          <label className="text-3xl font-bold text-blue-900 mb-4 block">User ID</label> {/* Changed label */}
+          <label className="text-3xl font-bold text-blue-900 mb-4 block">User ID</label>
           <input 
-            type="text" // Changed type from email to text
+            type="text" 
             value={loginUserId}
             onChange={(e) => setLoginUserId(e.target.value)}
-            placeholder="Type your User ID here" // Changed placeholder
+            placeholder="Type your User ID here" 
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
@@ -245,12 +357,12 @@ export default function MemoryMateApp() {
           />
         </div>
         <div>
-          <label className="text-3xl font-bold text-blue-900 mb-3 block">User ID</label> {/* Changed label */}
+          <label className="text-3xl font-bold text-blue-900 mb-3 block">User ID</label>
           <input 
-            type="text" // Changed type from email to text
+            type="text" 
             value={signupUserId}
             onChange={(e) => setSignupUserId(e.target.value)}
-            placeholder="Choose a unique User ID" // Changed placeholder
+            placeholder="Choose a unique User ID"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
@@ -308,37 +420,117 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 5. STORE PHOTOS SCREEN (Will be further updated in Part 2)
+  // 5. STORE PHOTOS SCREEN (Updated with new UI and logic)
   const renderStorePhotos = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 animate-in fade-in relative">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Store A Photo</h2>
+      
       <div className="w-full max-w-2xl flex flex-col space-y-8">
-        <div className="w-full bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-100">
-          <Upload size={64} className="text-blue-800 mb-4" />
-          <span className="text-3xl font-bold text-blue-900 text-center">Tap here to choose a photo</span>
+        
+        {photoUploadErrorMsg && (
+          <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
+            {photoUploadErrorMsg}
+          </div>
+        )}
+
+        {/* Drag and Drop / File Select Area */}
+        <div 
+          className="w-full bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-100 transition-colors"
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current.click()} // Click to open file dialog
+        >
+          <input 
+            type="file" 
+            accept="image/*" 
+            onChange={handleFileChange} 
+            ref={fileInputRef} 
+            className="hidden" 
+          />
+          {photoFile ? (
+            <div className="flex flex-col items-center text-center">
+              <ImageIcon size={64} className="text-blue-800 mb-4" />
+              <span className="text-3xl font-bold text-blue-900">{photoFile.name} (Tap to change)</span>
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleClearPhoto(); }} 
+                className="mt-4 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600 transition-colors"
+              >
+                Remove Photo
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center text-center">
+              <CloudUpload size={64} className="text-blue-800 mb-4" />
+              <span className="text-3xl font-bold text-blue-900">Drag photo here, or tap to choose</span>
+            </div>
+          )}
         </div>
+
+        {/* Inputs */}
         <div>
-          <label className="text-3xl font-bold text-blue-900 mb-4 block">Who or what is in this photo?</label>
-          <input type="text" placeholder="Type details here..." className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" />
+          <label className="text-3xl font-bold text-blue-900 mb-4 block">
+            Who or what is in this photo?
+          </label>
+          <input 
+            type="text" 
+            value={photoDescription}
+            onChange={(e) => setPhotoDescription(e.target.value)}
+            placeholder="Type details here..."
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
+          />
         </div>
+
         <div>
-          <label className="text-3xl font-bold text-blue-900 mb-4 block">Date of photo</label>
-          <input type="date" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" />
+          <label className="text-3xl font-bold text-blue-900 mb-4 block">
+            Date of photo
+          </label>
+          <input 
+            type="date" 
+            value={photoDate}
+            onChange={(e) => setPhotoDate(e.target.value)}
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
+          />
         </div>
+
+        {/* Action Buttons */}
         <div className="flex flex-col space-y-6 pt-6">
-          <button onClick={() => setShowSuccess(true)} className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800">
-            Save Photo
+          <button 
+            onClick={handlePhotoUpload}
+            disabled={isPhotoUploading}
+            className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+          >
+            {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
           </button>
-          <button onClick={() => setCurrentScreen('dashboard')} className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200">
+          
+          <button 
+            onClick={() => {
+                setPhotoUploadErrorMsg(''); // Clear error
+                setPhotoFile(null); // Clear form
+                setPhotoDescription('');
+                setPhotoDate('');
+                setCurrentScreen('dashboard');
+            }}
+            className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200"
+          >
             Cancel
           </button>
         </div>
       </div>
+
+      {/* Success Modal Overlay */}
       {showSuccess && (
-        <div className="fixed inset-0 bg-blue-950/90 flex flex-col items-center justify-center z-50 p-6 animate-in fade-in duration-300" onClick={() => {setShowSuccess(false); setCurrentScreen('dashboard');}}>
+        <div 
+          className="fixed inset-0 bg-blue-950/90 flex flex-col items-center justify-center z-50 p-6 animate-in fade-in duration-300"
+          onClick={() => {
+            setShowSuccess(false);
+            setCurrentScreen('dashboard');
+          }}
+        >
           <div className="bg-white rounded-3xl p-12 max-w-2xl w-full flex flex-col items-center text-center shadow-2xl border-8 border-green-500 transform transition-all scale-100">
             <CheckCircle size={120} className="text-green-600 mb-8" />
-            <h2 className="text-5xl font-extrabold text-blue-900 leading-tight">Information has been stored safely!</h2>
+            <h2 className="text-5xl font-extrabold text-blue-900 leading-tight">
+              Information has been stored safely!
+            </h2>
           </div>
         </div>
       )}
