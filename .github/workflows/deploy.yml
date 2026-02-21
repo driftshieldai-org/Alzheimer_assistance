@@ -1,0 +1,57 @@
+name: Alzhemier Assistance App Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: us-central1
+  GAR_REPO_NAME: alzhemier-ui
+
+  build-push-train:
+    name: 'Build & Push Docker Image for APP UI'
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && needs.changes_check.outputs.train == 'true'
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Authenticate to Google Cloud
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2. Setup Cloud SDK (Required for docker auth)
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      # 3. Configure Docker to use gcloud as a credential helper
+      - name: Configure Docker Auth
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # 4. Build and Push
+      - name: Build and Push Image
+        env:
+          # Format: REGION-docker.pkg.dev/PROJECT_ID/REPO_NAME/IMAGE_NAME:TAG
+          IMAGE_TAG: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPO_NAME }}/${{ env.TRAIN_IMAGE_NAME }}:${{ github.sha }}
+          IMAGE_LATEST: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPO_NAME }}/${{ env.TRAIN_IMAGE_NAME }}:latest
+        run: |
+          echo "Building image: $IMAGE_TAG"
+          
+          # Build the image from the 'train' folder
+          docker build -t $IMAGE_TAG -t $IMAGE_LATEST ./ui
+
+          echo "Pushing image to Artifact Registry..."
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
+          echo "Pushing image to Artifact Registry..."
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
