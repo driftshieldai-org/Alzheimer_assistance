@@ -54,3 +54,4 @@ variable "backend_service_account_id" {
   description = "The GCP service account used for application backend"
   type        = string
 }
+
