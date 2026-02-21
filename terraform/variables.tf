@@ -9,11 +9,6 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "image_tag" {
-  description = "The Docker image tag to deploy (passed from GitHub Actions)"
-  type        = string
-}
-
 variable "gar_repo_name" {
   description = "Name of the Artifact Registry Repo"
   type        = string
