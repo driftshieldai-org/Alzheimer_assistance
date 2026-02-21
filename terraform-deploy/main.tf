@@ -10,7 +10,7 @@ resource "google_cloud_run_v2_service" "alzheimer-ui" {
 
       # Inject the Backend URL into the Frontend container dynamically
       env {
-        name  = "VITE_BACKEND_URL"
+        name  = "BACKEND_URL"
         value = google_cloud_run_v2_service.backend.uri
       }
 
