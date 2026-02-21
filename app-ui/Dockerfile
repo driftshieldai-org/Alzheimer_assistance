@@ -1,29 +1,21 @@
-# Stage 1: Build the React application
+# Stage 1: Build the React application with Vite
 FROM node:18-alpine AS build
 WORKDIR /app
 
-# Copy package files and install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
-# Copy all source files and build the app
 COPY . .
-# NOTE: If you are using Vite, use "npm run build". 
-# The output folder is usually "dist" for Vite or "build" for Create React App.
 RUN npm run build
 
-# Stage 2: Serve the application using Nginx
+# Stage 2: Serve using Nginx
 FROM nginx:alpine
 
-# Copy the custom Nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy the NGINX template file (instead of the static conf)
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
-# Copy the built React files from Stage 1 to Nginx
-# Change /app/dist to /app/build if you used Create React App instead of Vite
+# Copy the built React files
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Expose port 8080 for Google Cloud Run
 EXPOSE 8080
-
-# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
