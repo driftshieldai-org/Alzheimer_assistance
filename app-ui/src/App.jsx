@@ -13,13 +13,19 @@ export default function MemoryMateApp() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // --- Authentication State Variables ---
+  // --- SignUp State Variables ---
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState(''); // NEW: Confirm Password State
-  const [errorMsg, setErrorMsg] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [signupEmail, setSignupEmail] = useState(''); // Renamed to avoid collision with loginEmail
+  const [signupPassword, setSignupPassword] = useState(''); // Renamed
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [signupErrorMsg, setSignupErrorMsg] = useState(''); // Renamed
+  const [isSignupLoading, setIsSignupLoading] = useState(false); // Renamed
+
+  // --- Login State Variables --- NEW
+  const [loginEmail, setLoginEmail] = useState(''); 
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
+  const [isLoginLoading, setIsLoginLoading] = useState(false); 
 
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
@@ -33,32 +39,25 @@ export default function MemoryMateApp() {
     return () => clearTimeout(timer);
   }, [showSuccess]);
 
-  // --- Sign Up Function ---
-  const handleSignup = async () => {
-    setIsLoading(true);
-    setErrorMsg('');
 
-    // NEW: Check if passwords match BEFORE sending to the server
-    if (password !== confirmPassword) {
-      setErrorMsg('Passwords do not match. Please try again.');
-      setIsLoading(false);
-      return; // Stop the function here
-    }
+  // --- NEW: handleLogin Function ---
+  const handleLogin = async () => {
+    setIsLoginLoading(true);
+    setLoginErrorMsg('');
 
-    if (!name || !email || !password) {
-      setErrorMsg('Please fill out all fields.');
-      setIsLoading(false);
+    if (!loginEmail || !loginPassword) {
+      setLoginErrorMsg('Please enter both email and password.');
+      setIsLoginLoading(false);
       return;
     }
 
     try {
-      const response = await fetch('/api/auth/signup', {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password })
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
 
-      // Check if the response is actually JSON before parsing
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         const textError = await response.text();
@@ -72,17 +71,67 @@ export default function MemoryMateApp() {
         localStorage.setItem('token', data.token);
         localStorage.setItem('userName', data.user.name);
         
-        // Clear form
-        setName(''); setEmail(''); setPassword(''); setConfirmPassword('');
+        // Clear form and go to Dashboard
+        setLoginEmail(''); setLoginPassword('');
         setCurrentScreen('dashboard');
       } else {
-        setErrorMsg(data.message || 'Something went wrong.');
+        setLoginErrorMsg(data.message || 'Login failed. Please try again.');
       }
     } catch (err) {
-      console.error("Full error details:", err);
-      setErrorMsg('Failed to connect to the server. Check browser console.');
+      console.error("Login Error:", err);
+      setLoginErrorMsg('Failed to connect to the server. Please check your internet connection.');
     } finally {
-      setIsLoading(false);
+      setIsLoginLoading(false);
+    }
+  };
+
+  // --- Updated handleSignup Function ---
+  const handleSignup = async () => {
+    setIsSignupLoading(true);
+    setSignupErrorMsg('');
+
+    if (signupPassword !== confirmPassword) {
+      setSignupErrorMsg('Passwords do not match. Please try again.');
+      setIsSignupLoading(false);
+      return;
+    }
+
+    if (!name || !signupEmail || !signupPassword) {
+      setSignupErrorMsg('Please fill out all fields.');
+      setIsSignupLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email: signupEmail, password: signupPassword })
+      });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const textError = await response.text();
+        console.error("Server returned HTML or text instead of JSON:", textError);
+        throw new Error("Server configuration error. Check console.");
+      }
+
+      const data = await response.json();
+
+      if (response.ok) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('userName', data.user.name);
+        
+        setName(''); setSignupEmail(''); setSignupPassword(''); setConfirmPassword('');
+        setCurrentScreen('dashboard');
+      } else {
+        setSignupErrorMsg(data.message || 'Something went wrong during signup.');
+      }
+    } catch (err) {
+      console.error("Signup Error:", err);
+      setSignupErrorMsg('Failed to connect to the server. Check browser console for more details.');
+    } finally {
+      setIsSignupLoading(false);
     }
   };
 
@@ -90,7 +139,10 @@ export default function MemoryMateApp() {
   const BackButton = ({ onClick }) => (
     <button 
       onClick={() => {
-        setErrorMsg(''); // Clear errors when going back
+        setSignupErrorMsg(''); // Clear signup errors when going back
+        setLoginErrorMsg(''); // Clear login errors when going back
+        setLoginEmail(''); setLoginPassword(''); // Clear login form
+        setName(''); setSignupEmail(''); setSignupPassword(''); setConfirmPassword(''); // Clear signup form
         onClick();
       }}
       className="flex items-center justify-center w-full max-w-xl bg-slate-200 text-blue-900 text-3xl font-bold py-6 px-8 rounded-2xl shadow-md border-4 border-slate-300 hover:bg-slate-300 active:bg-slate-400 transition-colors mt-6"
@@ -110,47 +162,76 @@ export default function MemoryMateApp() {
         </h1>
       </div>
       <div className="w-full max-w-xl flex flex-col space-y-8">
-        <button onClick={() => setCurrentScreen('login')} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-blue-900 active:bg-blue-950 transition-colors border-4 border-blue-900">
+        <button 
+          onClick={() => setCurrentScreen('login')}
+          className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-blue-900 active:bg-blue-950 transition-colors border-4 border-blue-900"
+        >
           Login
         </button>
-        <button onClick={() => setCurrentScreen('signup')} className="w-full bg-white text-blue-900 text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-slate-100 active:bg-slate-200 transition-colors border-4 border-blue-800">
+        <button 
+          onClick={() => setCurrentScreen('signup')}
+          className="w-full bg-white text-blue-900 text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-slate-100 active:bg-slate-200 transition-colors border-4 border-blue-800"
+        >
           Sign Up
         </button>
       </div>
     </div>
   );
 
-  // 2. LOGIN SCREEN
+  // 2. LOGIN SCREEN (Updated with state & fetch)
   const renderLogin = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-12">Login</h2>
       <div className="w-full max-w-xl flex flex-col space-y-8">
+        
+        {loginErrorMsg && (
+          <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
+            {loginErrorMsg}
+          </div>
+        )}
+
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-4 block">Email Address</label>
-          <input type="email" placeholder="Type your email here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" />
+          <input 
+            type="email" 
+            value={loginEmail}
+            onChange={(e) => setLoginEmail(e.target.value)}
+            placeholder="Type your email here" 
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
+          />
         </div>
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-4 block">Password</label>
-          <input type="password" placeholder="Type your password here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" />
+          <input 
+            type="password" 
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            placeholder="Type your password here" 
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
+          />
         </div>
-        <button onClick={() => setCurrentScreen('dashboard')} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-8">
-          Login
+        <button 
+          onClick={handleLogin} 
+          disabled={isLoginLoading}
+          className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-8 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+        >
+          {isLoginLoading ? 'Logging In...' : 'Login'}
         </button>
         <BackButton onClick={() => setCurrentScreen('home')} />
       </div>
     </div>
   );
 
-  // 3. SIGN UP SCREEN (Updated with Confirm Password)
+  // 3. SIGN UP SCREEN (Renamed state variables to avoid confusion)
   const renderSignup = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-10">Sign Up</h2>
       
       <div className="w-full max-w-xl flex flex-col space-y-6">
         
-        {errorMsg && (
+        {signupErrorMsg && (
           <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
-            {errorMsg}
+            {signupErrorMsg}
           </div>
         )}
 
@@ -168,8 +249,8 @@ export default function MemoryMateApp() {
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Email Address</label>
           <input 
             type="email" 
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            value={signupEmail}
+            onChange={(e) => setSignupEmail(e.target.value)}
             placeholder="Type your email here"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
@@ -178,14 +259,13 @@ export default function MemoryMateApp() {
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Password</label>
           <input 
             type="password" 
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            value={signupPassword}
+            onChange={(e) => setSignupPassword(e.target.value)}
             placeholder="Type a password here"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
         
-        {/* NEW: Confirm Password Field */}
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Type Password Again</label>
           <input 
@@ -199,10 +279,10 @@ export default function MemoryMateApp() {
         
         <button 
           onClick={handleSignup}
-          disabled={isLoading}
+          disabled={isSignupLoading}
           className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-6 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
         >
-          {isLoading ? 'Creating Account...' : 'Sign Up'}
+          {isSignupLoading ? 'Creating Account...' : 'Sign Up'}
         </button>
         
         <BackButton onClick={() => setCurrentScreen('home')} />
