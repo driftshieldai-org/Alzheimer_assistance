@@ -32,3 +32,20 @@ resource "google_project_iam_member" "backend_sa_roles" {
   role    = each.value
   member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
 }
+
+
+# --- NEW: Cloud Storage Bucket for User Photos ---
+resource "google_storage_bucket" "memorymate_photos" {
+  name          = "memorymate-user-photos-${var.project_id}" # Unique bucket name
+  location      = var.region
+  project       = var.project_id
+  uniform_bucket_level_access = true # Recommended for security
+  force_destroy = false # Set to true carefully for development if you want it to delete on `terraform destroy`
+}
+
+# Grant the Backend Service Account permissions to write to the storage bucket
+resource "google_project_iam_member" "backend_storage_access" {
+  project = var.project_id
+  role    = "roles/storage.objectAdmin" # Allows creating, updating, deleting objects
+  member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
+}
