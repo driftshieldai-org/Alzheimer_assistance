@@ -9,15 +9,15 @@ import {
   Upload
 } from 'lucide-react';
 
-
 export default function MemoryMateApp() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // --- NEW: Authentication State Variables ---
+  // --- Authentication State Variables ---
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); // NEW: Confirm Password State
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -33,36 +33,54 @@ export default function MemoryMateApp() {
     return () => clearTimeout(timer);
   }, [showSuccess]);
 
-  // --- NEW: Sign Up Function ---
+  // --- Sign Up Function ---
   const handleSignup = async () => {
     setIsLoading(true);
     setErrorMsg('');
 
+    // NEW: Check if passwords match BEFORE sending to the server
+    if (password !== confirmPassword) {
+      setErrorMsg('Passwords do not match. Please try again.');
+      setIsLoading(false);
+      return; // Stop the function here
+    }
+
+    if (!name || !email || !password) {
+      setErrorMsg('Please fill out all fields.');
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      // Sending request to Nginx, which forwards to Backend Cloud Run
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password })
       });
 
+      // Check if the response is actually JSON before parsing
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const textError = await response.text();
+        console.error("Server returned HTML or text instead of JSON:", textError);
+        throw new Error("Server configuration error. Check console.");
+      }
+
       const data = await response.json();
 
       if (response.ok) {
-        // Save the token to keep the user logged in
         localStorage.setItem('token', data.token);
         localStorage.setItem('userName', data.user.name);
         
-        // Clear form and go to Dashboard
-        setName(''); setEmail(''); setPassword('');
+        // Clear form
+        setName(''); setEmail(''); setPassword(''); setConfirmPassword('');
         setCurrentScreen('dashboard');
       } else {
-        // Show error message returned from the backend (e.g. "User already exists")
         setErrorMsg(data.message || 'Something went wrong.');
       }
     } catch (err) {
-      console.error(err);
-      setErrorMsg('Failed to connect to the server.');
+      console.error("Full error details:", err);
+      setErrorMsg('Failed to connect to the server. Check browser console.');
     } finally {
       setIsLoading(false);
     }
@@ -91,25 +109,18 @@ export default function MemoryMateApp() {
           MemoryMate
         </h1>
       </div>
-      
       <div className="w-full max-w-xl flex flex-col space-y-8">
-        <button 
-          onClick={() => setCurrentScreen('login')}
-          className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-blue-900 active:bg-blue-950 transition-colors border-4 border-blue-900"
-        >
+        <button onClick={() => setCurrentScreen('login')} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-blue-900 active:bg-blue-950 transition-colors border-4 border-blue-900">
           Login
         </button>
-        <button 
-          onClick={() => setCurrentScreen('signup')}
-          className="w-full bg-white text-blue-900 text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-slate-100 active:bg-slate-200 transition-colors border-4 border-blue-800"
-        >
+        <button onClick={() => setCurrentScreen('signup')} className="w-full bg-white text-blue-900 text-4xl font-extrabold py-8 px-8 rounded-2xl shadow-xl hover:bg-slate-100 active:bg-slate-200 transition-colors border-4 border-blue-800">
           Sign Up
         </button>
       </div>
     </div>
   );
 
-  // 2. LOGIN SCREEN (Visually same for now)
+  // 2. LOGIN SCREEN
   const renderLogin = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-12">Login</h2>
@@ -130,14 +141,13 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 3. SIGN UP SCREEN (Updated with state & fetch)
+  // 3. SIGN UP SCREEN (Updated with Confirm Password)
   const renderSignup = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-10">Sign Up</h2>
       
       <div className="w-full max-w-xl flex flex-col space-y-6">
         
-        {/* Error Message Display */}
         {errorMsg && (
           <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
             {errorMsg}
@@ -175,6 +185,18 @@ export default function MemoryMateApp() {
           />
         </div>
         
+        {/* NEW: Confirm Password Field */}
+        <div>
+          <label className="text-3xl font-bold text-blue-900 mb-3 block">Type Password Again</label>
+          <input 
+            type="password" 
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Type your password again"
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
+          />
+        </div>
+        
         <button 
           onClick={handleSignup}
           disabled={isLoading}
@@ -194,26 +216,14 @@ export default function MemoryMateApp() {
       <h2 className="text-4xl md:text-5xl font-extrabold text-blue-900 mb-12 text-center max-w-3xl leading-tight">
         Hello {localStorage.getItem('userName') || ''}! What would you like to do today?
       </h2>
-      
       <div className="w-full max-w-2xl flex flex-col space-y-8 flex-grow">
-        <button 
-          onClick={() => setCurrentScreen('store_photos')}
-          className="flex-1 flex flex-col items-center justify-center bg-blue-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-blue-900 active:bg-blue-950 transition-all border-4 border-blue-900"
-        >
+        <button onClick={() => setCurrentScreen('store_photos')} className="flex-1 flex flex-col items-center justify-center bg-blue-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-blue-900 active:bg-blue-950 transition-all border-4 border-blue-900">
           <Camera size={80} className="mb-6" />
-          <span className="text-4xl md:text-5xl font-extrabold text-center">
-            Store New Photos
-          </span>
+          <span className="text-4xl md:text-5xl font-extrabold text-center">Store New Photos</span>
         </button>
-
-        <button 
-          onClick={() => setCurrentScreen('live_view')}
-          className="flex-1 flex flex-col items-center justify-center bg-teal-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-teal-900 active:bg-teal-950 transition-all border-4 border-teal-900 mb-8"
-        >
+        <button onClick={() => setCurrentScreen('live_view')} className="flex-1 flex flex-col items-center justify-center bg-teal-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-teal-900 active:bg-teal-950 transition-all border-4 border-teal-900 mb-8">
           <Video size={80} className="mb-6" />
-          <span className="text-4xl md:text-5xl font-extrabold text-center">
-            Understand the place live
-          </span>
+          <span className="text-4xl md:text-5xl font-extrabold text-center">Understand the place live</span>
         </button>
       </div>
     </div>
@@ -287,7 +297,6 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // Main Render Switch
   return (
     <div className="min-h-screen bg-slate-50 font-sans selection:bg-blue-200">
       {currentScreen === 'home' && renderHome()}
