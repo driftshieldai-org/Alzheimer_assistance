@@ -5,6 +5,7 @@ import { Firestore } from '@google-cloud/firestore';
 
 const router = express.Router();
 
+
 // Initialize Firestore
 // Note: When deployed to Cloud Run, this automatically uses the service account credentials!
 const db = new Firestore();
