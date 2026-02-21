@@ -4,7 +4,6 @@ resource "google_cloud_run_v2_service" "alzheimer-ui" {
   project = var.project_id
   ingress = "INGRESS_TRAFFIC_ALL"
 
-
   template {
     containers {
       image = "us-central1-docker.pkg.dev/${var.project_id}/${var.repo_name}/${var.ui_image_name}:latest"
