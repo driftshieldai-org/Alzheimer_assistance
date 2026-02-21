@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Webcam from 'react-webcam'; // NEW: Import Webcam component
+import Webcam from 'react-webcam'; 
 import { 
   Brain, 
   ArrowLeft, 
@@ -10,7 +10,9 @@ import {
   Upload, 
   CloudUpload, 
   ImageIcon,
-  CameraIcon // NEW: Lucide camera icon for live photo
+  CameraIcon,
+  PlayIcon, // NEW for audio playback
+  StopCircle // NEW for stopping live assistance
 } from 'lucide-react';
 
 export default function MemoryMateApp() {
@@ -26,24 +28,35 @@ export default function MemoryMateApp() {
   const [isSignupLoading, setIsSignupLoading] = useState(false);
 
   // --- Login State Variables ---
-  const [loginUserId, setLoginUserId] = useState('');
+  const [loginUserId, setLoginUserId] = useState(''); 
   const [loginPassword, setLoginPassword] = useState('');
   const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
   const [isLoginLoading, setIsLoginLoading] = useState(false); 
 
   // --- Photo Upload State Variables ---
-  const [photoFile, setPhotoFile] = useState(null); // This can be from upload or camera
+  const [photoFile, setPhotoFile] = useState(null); 
   const [photoDescription, setPhotoDescription] = useState('');
   const [photoDate, setPhotoDate] = useState('');
   const [photoUploadErrorMsg, setPhotoUploadErrorMsg] = useState('');
   const [isPhotoUploading, setIsPhotoUploading] = useState(false);
-  const fileInputRef = useRef(null); // Ref for hidden file input
+  const fileInputRef = useRef(null); 
 
-  // --- NEW: Live Camera State Variables ---
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const webcamRef = useRef(null); // Ref for Webcam component
+  // --- Live Camera State Variables (for Photo Capture) ---
+  const [isCameraActive, setIsCameraActive] = useState(false); // For Store Photos screen
+  const webcamRefCapture = useRef(null); // Ref for Webcam component on Store Photos screen
   const [capturedImageSrc, setCapturedImageSrc] = useState(null); // Stores base64 of captured image
-  
+
+  // --- NEW: Live Assistance State Variables ---
+  const [isLiveAssistanceActive, setIsLiveAssistanceActive] = useState(false);
+  const webcamRefLive = useRef(null); // Ref for Webcam component on Live View screen
+  const [liveVideoError, setLiveVideoError] = useState('');
+  const [processingFrame, setProcessingFrame] = useState(false);
+  const [aiAudioResponse, setAiAudioResponse] = useState(''); // Stores base64 audio or URL
+  const [aiTextResponse, setAiTextResponse] = useState(''); // Stores text response
+  const audioPlayerRef = useRef(null); // Ref for audio element
+  const captureIntervalRef = useRef(null); // To manage interval for sending frames
+
+
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
     let timer;
@@ -55,6 +68,120 @@ export default function MemoryMateApp() {
     }
     return () => clearTimeout(timer);
   }, [showSuccess]);
+
+  // --- NEW: Live Assistance Effects ---
+  useEffect(() => {
+    if (aiAudioResponse && audioPlayerRef.current) {
+        audioPlayerRef.current.play().catch(e => console.error("Error playing audio:", e));
+    }
+  }, [aiAudioResponse]);
+
+  useEffect(() => {
+    // Cleanup interval if component unmounts or leaves live view
+    return () => {
+      if (captureIntervalRef.current) {
+        clearInterval(captureIntervalRef.current);
+        captureIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  // --- NEW: Live Assistance Functions ---
+  const startLiveAssistance = () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        setLiveVideoError("Please log in to use live assistance.");
+        setCurrentScreen('login');
+        return;
+    }
+
+    setIsLiveAssistanceActive(true);
+    setLiveVideoError('');
+    setAiTextResponse('');
+    setAiAudioResponse('');
+
+    // Start sending frames periodically
+    captureIntervalRef.current = setInterval(processLiveFrame, 2000); // Send frame every 2 seconds
+  };
+  
+  const stopLiveAssistance = () => {
+    if (captureIntervalRef.current) {
+      clearInterval(captureIntervalRef.current);
+      captureIntervalRef.current = null;
+    }
+    setIsLiveAssistanceActive(false);
+    setAiTextResponse('');
+    setAiAudioResponse('');
+    setProcessingFrame(false);
+  };
+
+  const processLiveFrame = async () => {
+    if (!webcamRefLive.current || processingFrame) return;
+
+    setProcessingFrame(true);
+    setLiveVideoError('');
+    setAiTextResponse('');
+    setAiAudioResponse('');
+
+    const imageSrc = webcamRefLive.current.getScreenshot({width: 640, height: 360}); // Capture screenshot
+    if (!imageSrc) {
+        setLiveVideoError("Failed to capture image from webcam.");
+        setProcessingFrame(false);
+        return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        setLiveVideoError("Authentication token missing for live assistance.");
+        stopLiveAssistance();
+        setCurrentScreen('login');
+        return;
+    }
+
+    // Convert base64 to Blob for FormData
+    const byteString = atob(imageSrc.split(',')[1]);
+    const mimeString = imageSrc.split(',')[0].split(':')[1].split(';')[0];
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+    }
+    const blob = new Blob([ab], { type: mimeString });
+
+    const formData = new FormData();
+    formData.append('frame', blob, 'live-frame.jpeg'); // 'frame' key must match backend multer config
+
+    try {
+      const response = await fetch('/api/live/process-frame', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const textError = await response.text();
+        console.error("Server returned HTML or text instead of JSON (Live Frame):", textError);
+        throw new Error("Server configuration error for live frame. Check console.");
+      }
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setAiTextResponse(data.description);
+        setAiAudioResponse(data.audio); // Play audio if available
+      } else {
+        setLiveVideoError(data.message || 'Error processing live frame.');
+      }
+    } catch (err) {
+      console.error("Live Frame API Error:", err);
+      setLiveVideoError('Failed to connect to the backend for live processing.');
+    } finally {
+      setProcessingFrame(false);
+    }
+  };
 
 
   // --- handleLogin Function ---
@@ -157,15 +284,14 @@ export default function MemoryMateApp() {
     setIsPhotoUploading(true);
     setPhotoUploadErrorMsg('');
 
-    let photoToSend = photoFile; // Default to an uploaded file
+    let photoToSend = photoFile; 
 
-    // If a photo was captured, convert it from base64 to a File object
     if (capturedImageSrc) {
         try {
             const response = await fetch(capturedImageSrc);
             const blob = await response.blob();
             photoToSend = new File([blob], `captured_photo_${Date.now()}.jpeg`, { type: blob.type });
-            setPhotoFile(photoToSend); // Set photoFile state for consistency, though not strictly necessary now
+            setPhotoFile(photoToSend); 
         } catch (error) {
             console.error("Error converting captured image to file:", error);
             setPhotoUploadErrorMsg('Failed to process captured image.');
@@ -174,7 +300,6 @@ export default function MemoryMateApp() {
         }
     }
     
-    // Final check for file after potential capture conversion
     if (!photoToSend) {
         setPhotoUploadErrorMsg('Please select or capture a photo to upload.');
         setIsPhotoUploading(false);
@@ -224,12 +349,11 @@ export default function MemoryMateApp() {
       const data = await response.json();
 
       if (response.ok) {
-        // Clear all photo states after successful upload
-        setPhotoFile(null);
+        setPhotoFile(null); 
         setPhotoDescription('');
         setPhotoDate('');
-        setIsCameraActive(false); // Turn off camera
-        setCapturedImageSrc(null); // Clear captured image
+        setIsCameraActive(false); 
+        setCapturedImageSrc(null); 
         setShowSuccess(true);
       } else {
         setPhotoUploadErrorMsg(data.message || 'Photo upload failed. Please try again.');
@@ -246,12 +370,12 @@ export default function MemoryMateApp() {
     }
   };
 
-  // --- NEW: handleFileChange and Drag/Drop functions for photo upload ---
+  // --- handleFileChange and Drag/Drop functions for photo upload ---
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setPhotoFile(e.target.files[0]);
-      setCapturedImageSrc(null); // Clear captured image if file is uploaded
-      setIsCameraActive(false); // Turn off camera if file is uploaded
+      setCapturedImageSrc(null); 
+      setIsCameraActive(false); 
       setPhotoUploadErrorMsg('');
     }
   };
@@ -264,8 +388,8 @@ export default function MemoryMateApp() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setPhotoFile(e.dataTransfer.files[0]);
-      setCapturedImageSrc(null); // Clear captured image if file is dropped
-      setIsCameraActive(false); // Turn off camera if file is dropped
+      setCapturedImageSrc(null); 
+      setIsCameraActive(false); 
       setPhotoUploadErrorMsg('');
     }
   };
@@ -275,30 +399,30 @@ export default function MemoryMateApp() {
     setCapturedImageSrc(null);
     setIsCameraActive(false);
     if (fileInputRef.current) {
-      fileInputRef.current.value = null; // Clear input visually
+      fileInputRef.current.value = null; 
     }
   };
 
-  // --- NEW: Camera capture functions ---
-  const videoConstraints = {
-    facingMode: "environment" // Prefer rear camera on mobile
+  // --- Camera capture functions (for Store Photos screen) ---
+  const videoConstraintsCapture = {
+    facingMode: "environment" 
   };
 
-  const capture = useCallback(
+  const capturePhoto = useCallback(
     () => {
-      const imageSrc = webcamRef.current.getScreenshot({width: 1280, height: 720}); // Get high-res screenshot
+      const imageSrc = webcamRefCapture.current.getScreenshot({width: 1280, height: 720}); 
       setCapturedImageSrc(imageSrc);
-      setPhotoFile(null); // Clear any previously selected file
+      setPhotoFile(null); 
       setPhotoUploadErrorMsg('');
     },
-    [webcamRef, setCapturedImageSrc]
+    [webcamRefCapture, setCapturedImageSrc]
   );
   
-  const handleRetryCamera = () => {
+  const handleRetryCameraCapture = () => {
     setCapturedImageSrc(null);
   };
   
-  const handleCancelCamera = () => {
+  const handleCancelCameraCapture = () => {
     setIsCameraActive(false);
     setCapturedImageSrc(null);
     setPhotoFile(null);
@@ -310,11 +434,12 @@ export default function MemoryMateApp() {
     <button 
       onClick={() => {
         // Clear all errors and form states when going back
-        setSignupErrorMsg(''); setLoginErrorMsg(''); setPhotoUploadErrorMsg('');
+        setSignupErrorMsg(''); setLoginErrorMsg(''); setPhotoUploadErrorMsg(''); setLiveVideoError('');
         setLoginUserId(''); setLoginPassword('');
         setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
         setPhotoFile(null); setPhotoDescription(''); setPhotoDate('');
-        setIsCameraActive(false); setCapturedImageSrc(null); // Clear camera states
+        setIsCameraActive(false); setCapturedImageSrc(null); 
+        stopLiveAssistance(); // Ensure live assistance is stopped
         onClick();
       }}
       className="flex items-center justify-center w-full max-w-xl bg-slate-200 text-blue-900 text-3xl font-bold py-6 px-8 rounded-2xl shadow-md border-4 border-slate-300 hover:bg-slate-300 active:bg-slate-400 transition-colors mt-6"
@@ -507,36 +632,34 @@ export default function MemoryMateApp() {
                 </button>
                 <button 
                     onClick={() => setIsCameraActive(true)}
-                    className="flex flex-col items-center justify-center bg-light-green-100 border-4 border-black-300 text-black-900 p-8 rounded-2xl shadow-md hover:bg-light-green-200 transition-colors"
+                    className="flex flex-col items-center justify-center bg-green-100 border-4 border-green-300 text-green-900 p-8 rounded-2xl shadow-md hover:bg-green-200 transition-colors"
                >
-                     <CameraIcon size={64} className="mb-4 text-black-900" />
-                    <span className="text-3xl font-bold text-black-900">Take a Photo Now</span>
+                     <CameraIcon size={64} className="mb-4 text-green-900" />
+                    <span className="text-3xl font-bold text-green-900">Take a Photo Now</span>
                     <span className="text-xl font-medium mt-2">Use your device's camera</span>
                 </button>
             </div>
         )}
 
-        {/* --- Camera View --- */}
+        {/* --- Camera View (for Photo Capture) --- */}
         {isCameraActive && !capturedImageSrc && (
           <div className="bg-slate-800 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-slate-900 shadow-2xl space-y-6">
             <Webcam
               audio={false}
-              ref={webcamRef}
+              ref={webcamRefCapture}
               screenshotFormat="image/jpeg"
-              width={500} // Adjust as needed, aspect ratio will maintain
-              height={281} // 16:9 aspect ratio
-              videoConstraints={videoConstraints}
-              className="rounded-xl w-full max-w-2xl"
+              videoConstraints={videoConstraintsCapture}
+              className="rounded-xl w-full max-w-2xl aspect-video object-cover" // Ensure it covers the area and maintains aspect ratio
             />
             <div className="flex w-full justify-around space-x-4">
               <button 
-                onClick={capture}
+                onClick={capturePhoto}
                 className="flex-1 bg-green-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-green-800 transition-colors flex items-center justify-center"
               >
                 <CameraIcon size={32} className="mr-4" /> Capture Photo
               </button>
               <button 
-                onClick={handleCancelCamera}
+                onClick={handleCancelCameraCapture}
                 className="flex-1 bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-red-200 transition-colors flex items-center justify-center"
               >
                 <ArrowLeft size={32} className="mr-4" /> Cancel
@@ -552,20 +675,17 @@ export default function MemoryMateApp() {
             <img src={capturedImageSrc} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
             <div className="flex w-full justify-around space-x-4">
               <button 
-                onClick={handleRetryCamera}
+                onClick={handleRetryCameraCapture}
                 className="flex-1 bg-orange-500 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-orange-600 transition-colors flex items-center justify-center"
               >
                 <ArrowLeft size={32} className="mr-4" /> Retake Photo
               </button>
               <button 
-                onClick={() => {
-                  setPhotoFile(null); // Ensure photoFile is cleared
-                  setPhotoUploadErrorMsg('');
-                  // Keep capturedImageSrc
-                }}
-                className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-blue-800 transition-colors flex items-center justify-center"
+                onClick={handlePhotoUpload} // Directly trigger upload with captured image
+                disabled={isPhotoUploading || !photoDescription || !photoDate}
+                className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-blue-800 transition-colors flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Use This Photo
+                {isPhotoUploading ? 'Uploading...' : 'Use & Save Photo'}
               </button>
             </div>
           </div>
@@ -594,7 +714,7 @@ export default function MemoryMateApp() {
         />
 
         {/* --- Inputs (Display only if a photo is selected/captured or ready to be selected) --- */}
-        {(photoFile || capturedImageSrc || (!photoFile && !capturedImageSrc && !isCameraActive)) && ( // Always show if no picture yet, or if picture chosen
+        {(photoFile || capturedImageSrc || (!photoFile && !capturedImageSrc && !isCameraActive)) && ( 
             <>
                 <div>
                     <label className="text-3xl font-bold text-blue-900 mb-4 block">
@@ -604,7 +724,7 @@ export default function MemoryMateApp() {
                         type="text" 
                         value={photoDescription}
                         onChange={(e) => setPhotoDescription(e.target.value)}
-                        placeholder="Type details here..."
+                        placeholder="Type details for this picture..."
                         className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
                     />
                 </div>
@@ -624,12 +744,12 @@ export default function MemoryMateApp() {
         )}
         
 
-        {/* --- Action Buttons (only show if a photo is ready) --- */}
-        {(photoFile || capturedImageSrc) && (
+        {/* --- Action Buttons (only show if a photo is ready AND NOT already handled by capturedImageSrc buttons) --- */}
+        {(photoFile && !capturedImageSrc) && ( // Show save button only if a file is uploaded, and not for a captured image that has its own save button
             <div className="flex flex-col space-y-6 pt-6">
                 <button 
                     onClick={handlePhotoUpload}
-                    disabled={isPhotoUploading}
+                    disabled={isPhotoUploading || !photoDescription || !photoDate}
                     className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
                 >
                     {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
@@ -673,34 +793,85 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 6. UNDERSTAND THE PLACE LIVE SCREEN
+  // 6. UNDERSTAND THE PLACE LIVE SCREEN (UPDATED)
   const renderLiveView = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 bg-slate-100 animate-in fade-in">
-      <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Live View</h2>
-      <div className="w-full max-w-3xl bg-slate-800 aspect-video rounded-3xl flex flex-col items-center justify-center shadow-2xl border-8 border-slate-900 mb-10 overflow-hidden relative">
-        <Camera size={80} className="text-slate-400 mb-4" />
-        <span className="text-3xl font-bold text-slate-300">Live Camera Feed</span>
-        <div className="absolute top-6 right-6 flex items-center bg-black/50 px-4 py-2 rounded-full">
-          <div className="w-6 h-6 rounded-full bg-red-500 animate-pulse mr-3"></div>
-          <span className="text-white text-xl font-bold">LIVE</span>
-        </div>
-      </div>
-      <div className="flex flex-col items-center justify-center space-y-6 mb-12 p-8 bg-blue-50 rounded-3xl border-4 border-blue-200 w-full max-w-3xl">
-        <div className="flex items-center space-x-6 animate-pulse text-blue-800">
-          <Mic size={64} className="bg-blue-200 p-3 rounded-full" />
-          <div className="flex space-x-2">
-            <div className="w-4 h-12 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-4 h-16 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-4 h-10 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-            <div className="w-4 h-14 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '450ms' }}></div>
+      <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Live View Assistance</h2>
+      
+      {liveVideoError && (
+          <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center mb-8 animate-in fade-in">
+            {liveVideoError}
           </div>
+        )}
+
+      {isLiveAssistanceActive ? (
+        <>
+          {/* Live Camera Feed */}
+          <div className="w-full max-w-3xl bg-slate-800 aspect-video rounded-3xl flex flex-col items-center justify-center shadow-2xl border-8 border-slate-900 mb-10 overflow-hidden relative">
+            <Webcam
+              audio={false}
+              ref={webcamRefLive}
+              videoConstraints={{ facingMode: "environment" }}
+              className="rounded-xl w-full h-full object-cover"
+              onUserMediaError={(err) => {
+                console.error("Webcam Error:", err);
+                setLiveVideoError("Could not access camera. Please allow camera permissions.");
+                stopLiveAssistance(); // Stop if camera fails
+              }}
+            />
+            {/* Red recording dot */}
+            <div className="absolute top-6 right-6 flex items-center bg-black/50 px-4 py-2 rounded-full">
+              <div className="w-6 h-6 rounded-full bg-red-500 animate-pulse mr-3"></div>
+              <span className="text-white text-xl font-bold">LIVE</span>
+            </div>
+          </div>
+
+          {/* Voice Processing Indicator */}
+          <div className="flex flex-col items-center justify-center space-y-6 mb-12 p-8 bg-blue-50 rounded-3xl border-4 border-blue-200 w-full max-w-3xl">
+            <div className="flex items-center space-x-6 text-blue-800">
+              <Mic size={64} className={`bg-blue-200 p-3 rounded-full ${processingFrame ? 'animate-pulse' : ''}`} />
+              <div className="flex space-x-2">
+                <div className={`w-4 h-12 bg-blue-600 rounded-full ${processingFrame ? 'animate-bounce' : ''}`} style={{ animationDelay: '0ms' }}></div>
+                <div className={`w-4 h-16 bg-blue-600 rounded-full ${processingFrame ? 'animate-bounce' : ''}`} style={{ animationDelay: '150ms' }}></div>
+                <div className={`w-4 h-10 bg-blue-600 rounded-full ${processingFrame ? 'animate-bounce' : ''}`} style={{ animationDelay: '300ms' }}></div>
+                <div className={`w-4 h-14 bg-blue-600 rounded-full ${processingFrame ? 'animate-bounce' : ''}`} style={{ animationDelay: '450ms' }}></div>
+              </div>
+            </div>
+            <span className="text-4xl font-extrabold text-blue-900 text-center">
+              {processingFrame ? 'Listening and analyzing...' : (aiTextResponse || 'Awaiting input...')}
+            </span>
+            {aiAudioResponse && (
+                <div className="mt-4">
+                  <audio ref={audioPlayerRef} src={aiAudioResponse} controls className="hidden"></audio> {/* Hidden controls, audio plays via useEffect */}
+                  <button onClick={() => audioPlayerRef.current.play()} className="bg-blue-600 text-white p-4 rounded-xl text-2xl font-bold flex items-center hover:bg-blue-700">
+                    <PlayIcon size={32} className="mr-3" /> Play Message Again
+                  </button>
+                </div>
+            )}
+          </div>
+
+          {/* Stop / Go Back Button */}
+          <button 
+            onClick={stopLiveAssistance}
+            className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 transition-all mt-auto mb-6 flex justify-center items-center"
+          >
+            <StopCircle size={48} className="mr-6" />
+            Stop Live Assistance
+          </button>
+        </>
+      ) : (
+        // Start Live Assistance button
+        <div className="flex flex-col items-center justify-center p-6 space-y-8 w-full max-w-3xl">
+          <button 
+            onClick={startLiveAssistance}
+            className="w-full bg-teal-600 text-white text-5xl font-extrabold py-12 rounded-3xl shadow-2xl hover:bg-teal-700 active:bg-teal-800 border-8 border-teal-800 transition-all"
+          >
+            <Video size={64} className="inline mr-6" />
+            Start Live Assistance
+          </button>
+          <BackButton onClick={() => setCurrentScreen('dashboard')} />
         </div>
-        <span className="text-4xl font-extrabold text-blue-900 text-center">Listening and analyzing...</span>
-      </div>
-      <button onClick={() => setCurrentScreen('dashboard')} className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 transition-all mt-auto mb-6 flex justify-center items-center">
-        <ArrowLeft size={48} className="mr-6" />
-        Stop / Go Back
-      </button>
+      )}
     </div>
   );
 
