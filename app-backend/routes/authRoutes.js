@@ -66,4 +66,54 @@ router.post('/signup', async (req, res) => {
   }
 });
 
+// --- NEW: LOGIN ROUTE ---
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    // 1. Validation
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Please provide email and password.' });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+    const userRef = db.collection('users').doc(normalizedEmail);
+    const userDoc = await userRef.get();
+
+    // 2. Check if user exists
+    if (!userDoc.exists) {
+      return res.status(400).json({ message: 'Invalid credentials. Please check email or password.' });
+    }
+
+    const userData = userDoc.data();
+
+    // 3. Compare passwords (hashed vs. provided)
+    const isMatch = await bcrypt.compare(password, userData.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid credentials. Please check email or password.' });
+    }
+
+    // 4. Generate a JWT Token
+    const token = jwt.sign(
+      { email: normalizedEmail, name: userData.name },
+      process.env.JWT_SECRET || 'fallback_secret_for_dev',
+      { expiresIn: '30d' }
+    );
+
+    // 5. Send success response
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        name: userData.name,
+        email: normalizedEmail,
+      }
+    });
+
+  } catch (error) {
+    console.error('Login Error:', error);
+    res.status(500).json({ message: 'Server error during login.' });
+  }
+});
+
 export default router;
