@@ -1,0 +1,8 @@
+project_id    = "aipartnercatalyst-confluent-01"   
+region        = "us-central1"
+repo_name = "alzheimer-ui-docker"
+service_account_id = "alzheimer-ui-sa@aipartnercatalyst-confluent-01.iam.gserviceaccount.com"
+vpc_network = "vpc-driftshield"
+subnet_name = "snet-driftshield"
+ui_image_name = "alzheimer-ui"
+cloudrun_name = "alzheimer-ui"
