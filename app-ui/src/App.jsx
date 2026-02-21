@@ -9,6 +9,7 @@ import {
   Upload
 } from 'lucide-react';
 
+
 export default function MemoryMateApp() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [showSuccess, setShowSuccess] = useState(false);
