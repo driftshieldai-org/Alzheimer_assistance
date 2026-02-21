@@ -14,6 +14,11 @@ resource "google_cloud_run_v2_service" "alzheimer-ui" {
         value = google_cloud_run_v2_service.backend.uri
       }
 
+      env {
+        name  = "GCS_BUCKET_NAME"
+        value = "memorymate-user-photos-${var.project_id}"
+      }
+
       resources {
         limits = {
           cpu    = 1
