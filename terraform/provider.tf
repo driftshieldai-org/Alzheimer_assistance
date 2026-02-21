@@ -8,7 +8,7 @@ terraform {
 
   # This stores the "save file" for your infrastructure.
   backend "gcs" {
-    bucket  = "aipartnercatalyst-Alzheimer-tf-state" # <--- REPLACE THIS
+    bucket  = "aipartnercatalyst-alzheimer-tf-state" # <--- REPLACE THIS
     prefix  = "prod/state"
   }
 }
