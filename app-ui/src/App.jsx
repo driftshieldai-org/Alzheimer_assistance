@@ -15,14 +15,14 @@ export default function MemoryMateApp() {
 
   // --- SignUp State Variables ---
   const [name, setName] = useState('');
-  const [signupEmail, setSignupEmail] = useState(''); // Renamed to avoid collision with loginEmail
-  const [signupPassword, setSignupPassword] = useState(''); // Renamed
+  const [signupUserId, setSignupUserId] = useState(''); // Changed from signupEmail to signupUserId
+  const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [signupErrorMsg, setSignupErrorMsg] = useState(''); // Renamed
-  const [isSignupLoading, setIsSignupLoading] = useState(false); // Renamed
+  const [signupErrorMsg, setSignupErrorMsg] = useState('');
+  const [isSignupLoading, setIsSignupLoading] = useState(false);
 
-  // --- Login State Variables --- NEW
-  const [loginEmail, setLoginEmail] = useState(''); 
+  // --- Login State Variables ---
+  const [loginUserId, setLoginUserId] = useState(''); // Changed from loginEmail to loginUserId
   const [loginPassword, setLoginPassword] = useState('');
   const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
   const [isLoginLoading, setIsLoginLoading] = useState(false); 
@@ -40,13 +40,13 @@ export default function MemoryMateApp() {
   }, [showSuccess]);
 
 
-  // --- NEW: handleLogin Function ---
+  // --- handleLogin Function ---
   const handleLogin = async () => {
     setIsLoginLoading(true);
     setLoginErrorMsg('');
 
-    if (!loginEmail || !loginPassword) {
-      setLoginErrorMsg('Please enter both email and password.');
+    if (!loginUserId || !loginPassword) { // Validate userId
+      setLoginErrorMsg('Please enter both User ID and password.');
       setIsLoginLoading(false);
       return;
     }
@@ -55,7 +55,7 @@ export default function MemoryMateApp() {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+        body: JSON.stringify({ userId: loginUserId, password: loginPassword }) // Send userId
       });
 
       const contentType = response.headers.get("content-type");
@@ -69,13 +69,12 @@ export default function MemoryMateApp() {
 
       if (response.ok) {
         localStorage.setItem('token', data.token);
-        localStorage.setItem('userName', data.user.name);
+        localStorage.setItem('userId', data.user.userId); // Store userId instead of userName
         
-        // Clear form and go to Dashboard
-        setLoginEmail(''); setLoginPassword('');
+        setLoginUserId(''); setLoginPassword('');
         setCurrentScreen('dashboard');
       } else {
-        setLoginErrorMsg(data.message || 'Login failed. Please try again.');
+        setLoginErrorMsg(data.message || 'Login failed. Please check User ID or password.');
       }
     } catch (err) {
       console.error("Login Error:", err);
@@ -85,7 +84,7 @@ export default function MemoryMateApp() {
     }
   };
 
-  // --- Updated handleSignup Function ---
+  // --- handleSignup Function ---
   const handleSignup = async () => {
     setIsSignupLoading(true);
     setSignupErrorMsg('');
@@ -96,7 +95,7 @@ export default function MemoryMateApp() {
       return;
     }
 
-    if (!name || !signupEmail || !signupPassword) {
+    if (!name || !signupUserId || !signupPassword) { // Validate userId
       setSignupErrorMsg('Please fill out all fields.');
       setIsSignupLoading(false);
       return;
@@ -106,7 +105,7 @@ export default function MemoryMateApp() {
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email: signupEmail, password: signupPassword })
+        body: JSON.stringify({ name, userId: signupUserId, password: signupPassword }) // Send userId
       });
 
       const contentType = response.headers.get("content-type");
@@ -120,9 +119,9 @@ export default function MemoryMateApp() {
 
       if (response.ok) {
         localStorage.setItem('token', data.token);
-        localStorage.setItem('userName', data.user.name);
+        localStorage.setItem('userId', data.user.userId); // Store userId
         
-        setName(''); setSignupEmail(''); setSignupPassword(''); setConfirmPassword('');
+        setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
         setCurrentScreen('dashboard');
       } else {
         setSignupErrorMsg(data.message || 'Something went wrong during signup.');
@@ -141,8 +140,8 @@ export default function MemoryMateApp() {
       onClick={() => {
         setSignupErrorMsg(''); // Clear signup errors when going back
         setLoginErrorMsg(''); // Clear login errors when going back
-        setLoginEmail(''); setLoginPassword(''); // Clear login form
-        setName(''); setSignupEmail(''); setSignupPassword(''); setConfirmPassword(''); // Clear signup form
+        setLoginUserId(''); setLoginPassword(''); // Clear login form
+        setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword(''); // Clear signup form
         onClick();
       }}
       className="flex items-center justify-center w-full max-w-xl bg-slate-200 text-blue-900 text-3xl font-bold py-6 px-8 rounded-2xl shadow-md border-4 border-slate-300 hover:bg-slate-300 active:bg-slate-400 transition-colors mt-6"
@@ -178,7 +177,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 2. LOGIN SCREEN (Updated with state & fetch)
+  // 2. LOGIN SCREEN (Updated for userId)
   const renderLogin = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-12">Login</h2>
@@ -191,12 +190,12 @@ export default function MemoryMateApp() {
         )}
 
         <div>
-          <label className="text-3xl font-bold text-blue-900 mb-4 block">Email Address</label>
+          <label className="text-3xl font-bold text-blue-900 mb-4 block">User ID</label> {/* Changed label */}
           <input 
-            type="email" 
-            value={loginEmail}
-            onChange={(e) => setLoginEmail(e.target.value)}
-            placeholder="Type your email here" 
+            type="text" // Changed type from email to text
+            value={loginUserId}
+            onChange={(e) => setLoginUserId(e.target.value)}
+            placeholder="Type your User ID here" // Changed placeholder
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
@@ -222,7 +221,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 3. SIGN UP SCREEN (Renamed state variables to avoid confusion)
+  // 3. SIGN UP SCREEN (Updated for userId)
   const renderSignup = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-10">Sign Up</h2>
@@ -246,12 +245,12 @@ export default function MemoryMateApp() {
           />
         </div>
         <div>
-          <label className="text-3xl font-bold text-blue-900 mb-3 block">Email Address</label>
+          <label className="text-3xl font-bold text-blue-900 mb-3 block">User ID</label> {/* Changed label */}
           <input 
-            type="email" 
-            value={signupEmail}
-            onChange={(e) => setSignupEmail(e.target.value)}
-            placeholder="Type your email here"
+            type="text" // Changed type from email to text
+            value={signupUserId}
+            onChange={(e) => setSignupUserId(e.target.value)}
+            placeholder="Choose a unique User ID" // Changed placeholder
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 focus:ring-4 focus:ring-blue-200 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
@@ -290,11 +289,11 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 4. DASHBOARD SCREEN
+  // 4. DASHBOARD SCREEN (Updated to use userId)
   const renderDashboard = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-12 animate-in fade-in">
       <h2 className="text-4xl md:text-5xl font-extrabold text-blue-900 mb-12 text-center max-w-3xl leading-tight">
-        Hello {localStorage.getItem('userName') || ''}! What would you like to do today?
+        Hello {localStorage.getItem('userId') || ''}! What would you like to do today?
       </h2>
       <div className="w-full max-w-2xl flex flex-col space-y-8 flex-grow">
         <button onClick={() => setCurrentScreen('store_photos')} className="flex-1 flex flex-col items-center justify-center bg-blue-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-blue-900 active:bg-blue-950 transition-all border-4 border-blue-900">
@@ -309,7 +308,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 5. STORE PHOTOS SCREEN
+  // 5. STORE PHOTOS SCREEN (Will be further updated in Part 2)
   const renderStorePhotos = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 animate-in fade-in relative">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Store A Photo</h2>
