@@ -12,8 +12,7 @@
     "lucide-react": "^0.354.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-webcam": "^7.x.x",
-    "react-webcam": 
+    "react-webcam": "^7.x.x"
   },
   "devDependencies": {
     "@types/react": "^18.2.64",
