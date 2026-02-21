@@ -11,6 +11,7 @@ env:
   GCP_REGION: us-central1
   GAR_REPO_NAME: alzheimer-ui-docker
   APP_UI_IMAGE_NAME: alzhemier-ui
+  backend_UI_IMAGE_NAME: alzhemier-backend
 
 jobs:
   terraform:
@@ -66,6 +67,7 @@ jobs:
     outputs:
       # Expose the boolean 'true' or 'false' to other jobs
       uicr: ${{ steps.filter.outputs.uicr }}
+      backendcr: ${{ steps.filter.outputs.backendcr }}
       terraformdeploy: ${{ steps.filter.outputs.terraformdeploy }}
     steps:
       - name: Checkout Code
@@ -79,10 +81,12 @@ jobs:
           filters: |
             uicr:
               - app-ui/**/*
+            backendcr:
+              - app-backend/**/*  
             terraformdeploy:
               - 'terraform-deploy/**'
       - name: Debug Output
-        run: echo -e "Changes detected in Ui Code? ${{ steps.filter.outputs.uicr }} \n Changes detected in terraform deploy? ${{ steps.filter.outputs.terraformdeploy }}" 
+        run: echo -e "Changes detected in Ui Code? ${{ steps.filter.outputs.uicr }} \nChanges detected in backend Code? ${{ steps.filter.outputs.backendcr }} \n Changes detected in terraform deploy? ${{ steps.filter.outputs.terraformdeploy }}" 
 
        
   build-push-uicr:
@@ -128,13 +132,57 @@ jobs:
           docker push $IMAGE_TAG
           docker push $IMAGE_LATEST
 
+  build-push-backendcr:
+    name: 'Build & Push Docker Image for APP backend'
+    needs: [terraform, changes_check]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && needs.changes_check.outputs.backendcr == 'true'
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Authenticate to Google Cloud
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2. Setup Cloud SDK (Required for docker auth)
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      # 3. Configure Docker to use gcloud as a credential helper
+      - name: Configure Docker Auth
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      # 4. Build and Push
+      - name: Build and Push Image
+        env:
+          # Format: REGION-docker.pkg.dev/PROJECT_ID/REPO_NAME/IMAGE_NAME:TAG
+          IMAGE_TAG: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPO_NAME }}/${{ env.backend_UI_IMAGE_NAME }}:${{ github.sha }}
+          IMAGE_LATEST: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPO_NAME }}/${{ env.backend_UI_IMAGE_NAME }}:latest
+        run: |
+          echo "Building image: $IMAGE_TAG"
+          
+          # Build the image from the 'app backend' folder
+          docker build -t $IMAGE_TAG -t $IMAGE_LATEST ./app-backend
+
+          echo "Pushing image to Artifact Registry..."
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
+
   terraform-deploy:
     name: 'Terraform-job'
-    needs: [changes_check,build-push-uicr]
+    needs: [changes_check,build-push-uicr,build-push-backendcr]
     if: |
       always() && 
       (needs.build-push-uicr.result == 'success' || needs.build-push-uicr.result == 'skipped') &&
-      (needs.changes_check.outputs.terraformdeploy == 'true' || needs.changes_check.outputs.uicr == 'true')
+      (needs.build-push-backendcr.result == 'success' || needs.build-push-backendcr.result == 'skipped') &&
+      (needs.changes_check.outputs.terraformdeploy == 'true' || needs.changes_check.outputs.uicr == 'true' || needs.changes_check.outputs.backendcr == 'true') 
     
     runs-on: ubuntu-latest
 
