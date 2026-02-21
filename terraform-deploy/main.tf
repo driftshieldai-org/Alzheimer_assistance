@@ -13,6 +13,10 @@ resource "google_cloud_run_v2_service" "alzheimer-ui" {
         name  = "BACKEND_URL"
         value = google_cloud_run_v2_service.backend.uri
       }
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id 
+      }
 
       env {
         name  = "GCS_BUCKET_NAME"
