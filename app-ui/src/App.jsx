@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react'; // useRef added for file input
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Webcam from 'react-webcam'; // NEW: Import Webcam component
 import { 
   Brain, 
   ArrowLeft, 
@@ -7,8 +8,9 @@ import {
   CheckCircle, 
   Mic, 
   Upload, 
-  CloudUpload, // New icon for drag/drop
-  ImageIcon // New icon for file selection
+  CloudUpload, 
+  ImageIcon,
+  CameraIcon // NEW: Lucide camera icon for live photo
 } from 'lucide-react';
 
 export default function MemoryMateApp() {
@@ -29,14 +31,19 @@ export default function MemoryMateApp() {
   const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
   const [isLoginLoading, setIsLoginLoading] = useState(false); 
 
-  // --- Photo Upload State Variables --- NEW
-  const [photoFile, setPhotoFile] = useState(null);
+  // --- Photo Upload State Variables ---
+  const [photoFile, setPhotoFile] = useState(null); // This can be from upload or camera
   const [photoDescription, setPhotoDescription] = useState('');
   const [photoDate, setPhotoDate] = useState('');
   const [photoUploadErrorMsg, setPhotoUploadErrorMsg] = useState('');
   const [isPhotoUploading, setIsPhotoUploading] = useState(false);
   const fileInputRef = useRef(null); // Ref for hidden file input
 
+  // --- NEW: Live Camera State Variables ---
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const webcamRef = useRef(null); // Ref for Webcam component
+  const [capturedImageSrc, setCapturedImageSrc] = useState(null); // Stores base64 of captured image
+  
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
     let timer;
@@ -48,6 +55,7 @@ export default function MemoryMateApp() {
     }
     return () => clearTimeout(timer);
   }, [showSuccess]);
+
 
   // --- handleLogin Function ---
   const handleLogin = async () => {
@@ -143,17 +151,36 @@ export default function MemoryMateApp() {
     }
   };
 
-  // --- NEW: handlePhotoUpload Function ---
+  // --- handlePhotoUpload Function ---
   const handlePhotoUpload = async (e) => {
-    e.preventDefault(); // Prevent default form submission if any
+    e.preventDefault();
     setIsPhotoUploading(true);
     setPhotoUploadErrorMsg('');
 
-    if (!photoFile) {
-      setPhotoUploadErrorMsg('Please select a photo to upload.');
-      setIsPhotoUploading(false);
-      return;
+    let photoToSend = photoFile; // Default to an uploaded file
+
+    // If a photo was captured, convert it from base64 to a File object
+    if (capturedImageSrc) {
+        try {
+            const response = await fetch(capturedImageSrc);
+            const blob = await response.blob();
+            photoToSend = new File([blob], `captured_photo_${Date.now()}.jpeg`, { type: blob.type });
+            setPhotoFile(photoToSend); // Set photoFile state for consistency, though not strictly necessary now
+        } catch (error) {
+            console.error("Error converting captured image to file:", error);
+            setPhotoUploadErrorMsg('Failed to process captured image.');
+            setIsPhotoUploading(false);
+            return;
+        }
     }
+    
+    // Final check for file after potential capture conversion
+    if (!photoToSend) {
+        setPhotoUploadErrorMsg('Please select or capture a photo to upload.');
+        setIsPhotoUploading(false);
+        return;
+    }
+
     if (!photoDescription) {
       setPhotoUploadErrorMsg('Please add a description for the photo.');
       setIsPhotoUploading(false);
@@ -169,12 +196,12 @@ export default function MemoryMateApp() {
     if (!token) {
         setPhotoUploadErrorMsg('You must be logged in to upload photos.');
         setIsPhotoUploading(false);
-        setCurrentScreen('login'); // Redirect to login if no token
+        setCurrentScreen('login');
         return;
     }
 
     const formData = new FormData();
-    formData.append('photo', photoFile);
+    formData.append('photo', photoToSend);
     formData.append('description', photoDescription);
     formData.append('photoDate', photoDate);
 
@@ -182,9 +209,9 @@ export default function MemoryMateApp() {
       const response = await fetch('/api/photos/upload', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}` // Send JWT token for authentication
+          'Authorization': `Bearer ${token}`
         },
-        body: formData // Multer handles multipart/form-data
+        body: formData
       });
 
       const contentType = response.headers.get("content-type");
@@ -197,16 +224,18 @@ export default function MemoryMateApp() {
       const data = await response.json();
 
       if (response.ok) {
-        setPhotoFile(null); // Clear form
+        // Clear all photo states after successful upload
+        setPhotoFile(null);
         setPhotoDescription('');
         setPhotoDate('');
-        setShowSuccess(true); // Trigger success modal
+        setIsCameraActive(false); // Turn off camera
+        setCapturedImageSrc(null); // Clear captured image
+        setShowSuccess(true);
       } else {
         setPhotoUploadErrorMsg(data.message || 'Photo upload failed. Please try again.');
       }
     } catch (err) {
       console.error("Photo Upload Error:", err);
-      // More specific error for large files handled by Multer limit
       if (err.message.includes("File too large")) {
           setPhotoUploadErrorMsg("The photo file is too large (max 5MB).");
       } else {
@@ -219,8 +248,10 @@ export default function MemoryMateApp() {
 
   // --- NEW: handleFileChange and Drag/Drop functions for photo upload ---
   const handleFileChange = (e) => {
-    if (e.target.files[0]) {
+    if (e.target.files && e.target.files[0]) {
       setPhotoFile(e.target.files[0]);
+      setCapturedImageSrc(null); // Clear captured image if file is uploaded
+      setIsCameraActive(false); // Turn off camera if file is uploaded
       setPhotoUploadErrorMsg('');
     }
   };
@@ -233,15 +264,44 @@ export default function MemoryMateApp() {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setPhotoFile(e.dataTransfer.files[0]);
+      setCapturedImageSrc(null); // Clear captured image if file is dropped
+      setIsCameraActive(false); // Turn off camera if file is dropped
       setPhotoUploadErrorMsg('');
     }
   };
 
   const handleClearPhoto = () => {
     setPhotoFile(null);
+    setCapturedImageSrc(null);
+    setIsCameraActive(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = null; // Clear input visually
     }
+  };
+
+  // --- NEW: Camera capture functions ---
+  const videoConstraints = {
+    facingMode: "environment" // Prefer rear camera on mobile
+  };
+
+  const capture = useCallback(
+    () => {
+      const imageSrc = webcamRef.current.getScreenshot({width: 1280, height: 720}); // Get high-res screenshot
+      setCapturedImageSrc(imageSrc);
+      setPhotoFile(null); // Clear any previously selected file
+      setPhotoUploadErrorMsg('');
+    },
+    [webcamRef, setCapturedImageSrc]
+  );
+  
+  const handleRetryCamera = () => {
+    setCapturedImageSrc(null);
+  };
+  
+  const handleCancelCamera = () => {
+    setIsCameraActive(false);
+    setCapturedImageSrc(null);
+    setPhotoFile(null);
   };
 
 
@@ -254,6 +314,7 @@ export default function MemoryMateApp() {
         setLoginUserId(''); setLoginPassword('');
         setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
         setPhotoFile(null); setPhotoDescription(''); setPhotoDate('');
+        setIsCameraActive(false); setCapturedImageSrc(null); // Clear camera states
         onClick();
       }}
       className="flex items-center justify-center w-full max-w-xl bg-slate-200 text-blue-900 text-3xl font-bold py-6 px-8 rounded-2xl shadow-md border-4 border-slate-300 hover:bg-slate-300 active:bg-slate-400 transition-colors mt-6"
@@ -333,7 +394,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 3. SIGN UP SCREEN (Updated for userId)
+  // 3. SIGN UP SCREEN
   const renderSignup = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-10">Sign Up</h2>
@@ -401,7 +462,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 4. DASHBOARD SCREEN (Updated to use userId)
+  // 4. DASHBOARD SCREEN
   const renderDashboard = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-12 animate-in fade-in">
       <h2 className="text-4xl md:text-5xl font-extrabold text-blue-900 mb-12 text-center max-w-3xl leading-tight">
@@ -420,7 +481,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 5. STORE PHOTOS SCREEN (Updated with new UI and logic)
+  // 5. STORE PHOTOS SCREEN (Updated with Camera option)
   const renderStorePhotos = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 animate-in fade-in relative">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Store A Photo</h2>
@@ -433,88 +494,163 @@ export default function MemoryMateApp() {
           </div>
         )}
 
-        {/* Drag and Drop / File Select Area */}
-        <div 
-          className="w-full bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-100 transition-colors"
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current.click()} // Click to open file dialog
-        >
-          <input 
-            type="file" 
-            accept="image/*" 
-            onChange={handleFileChange} 
-            ref={fileInputRef} 
-            className="hidden" 
-          />
-          {photoFile ? (
-            <div className="flex flex-col items-center text-center">
-              <ImageIcon size={64} className="text-blue-800 mb-4" />
-              <span className="text-3xl font-bold text-blue-900">{photoFile.name} (Tap to change)</span>
+        {/* --- Photo Source Selection --- */}
+        {!isCameraActive && !photoFile && !capturedImageSrc && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <button 
+                    onClick={() => fileInputRef.current.click()}
+                    className="flex flex-col items-center justify-center bg-blue-100 border-4 border-blue-300 text-blue-900 p-8 rounded-2xl shadow-md hover:bg-blue-200 transition-colors"
+                >
+                    <Upload size={64} className="mb-4" />
+                    <span className="text-3xl font-bold">Upload from Device</span>
+                    <span className="text-xl font-medium mt-2">Choose photo from your phone or computer</span>
+                </button>
+                <button 
+                    onClick={() => setIsCameraActive(true)}
+                    className="flex flex-col items-center justify-center bg-light-green-100 border-4 border-black-300 text-black-900 p-8 rounded-2xl shadow-md hover:bg-light-green-200 transition-colors"
+               >
+                     <CameraIcon size={64} className="mb-4 text-black-900" />
+                    <span className="text-3xl font-bold text-black-900">Take a Photo Now</span>
+                    <span className="text-xl font-medium mt-2">Use your device's camera</span>
+                </button>
+            </div>
+        )}
+
+        {/* --- Camera View --- */}
+        {isCameraActive && !capturedImageSrc && (
+          <div className="bg-slate-800 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-slate-900 shadow-2xl space-y-6">
+            <Webcam
+              audio={false}
+              ref={webcamRef}
+              screenshotFormat="image/jpeg"
+              width={500} // Adjust as needed, aspect ratio will maintain
+              height={281} // 16:9 aspect ratio
+              videoConstraints={videoConstraints}
+              className="rounded-xl w-full max-w-2xl"
+            />
+            <div className="flex w-full justify-around space-x-4">
               <button 
-                onClick={(e) => { e.stopPropagation(); handleClearPhoto(); }} 
-                className="mt-4 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600 transition-colors"
+                onClick={capture}
+                className="flex-1 bg-green-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-green-800 transition-colors flex items-center justify-center"
               >
-                Remove Photo
+                <CameraIcon size={32} className="mr-4" /> Capture Photo
+              </button>
+              <button 
+                onClick={handleCancelCamera}
+                className="flex-1 bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-red-200 transition-colors flex items-center justify-center"
+              >
+                <ArrowLeft size={32} className="mr-4" /> Cancel
               </button>
             </div>
-          ) : (
-            <div className="flex flex-col items-center text-center">
-              <CloudUpload size={64} className="text-blue-800 mb-4" />
-              <span className="text-3xl font-bold text-blue-900">Drag photo here, or tap to choose</span>
+          </div>
+        )}
+
+        {/* --- Captured Image Preview --- */} 
+        {capturedImageSrc && (
+          <div className="bg-slate-100 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-blue-500 shadow-2xl space-y-6">
+            <h3 className="text-3xl font-bold text-blue-900 mt-2">Captured Photo Preview:</h3>
+            <img src={capturedImageSrc} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
+            <div className="flex w-full justify-around space-x-4">
+              <button 
+                onClick={handleRetryCamera}
+                className="flex-1 bg-orange-500 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-orange-600 transition-colors flex items-center justify-center"
+              >
+                <ArrowLeft size={32} className="mr-4" /> Retake Photo
+              </button>
+              <button 
+                onClick={() => {
+                  setPhotoFile(null); // Ensure photoFile is cleared
+                  setPhotoUploadErrorMsg('');
+                  // Keep capturedImageSrc
+                }}
+                className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-blue-800 transition-colors flex items-center justify-center"
+              >
+                Use This Photo
+              </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Inputs */}
-        <div>
-          <label className="text-3xl font-bold text-blue-900 mb-4 block">
-            Who or what is in this photo?
-          </label>
-          <input 
-            type="text" 
-            value={photoDescription}
-            onChange={(e) => setPhotoDescription(e.target.value)}
-            placeholder="Type details here..."
-            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
-          />
-        </div>
+        {/* --- Uploaded File Preview --- */}
+        {photoFile && !isCameraActive && !capturedImageSrc && (
+            <div className="bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center shadow-md">
+                <ImageIcon size={64} className="text-blue-800 mb-4" />
+                <span className="text-3xl font-bold text-blue-900 text-center">{photoFile.name} (Ready to upload)</span>
+                <button 
+                  onClick={handleClearPhoto} 
+                  className="mt-6 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600 transition-colors"
+                >
+                  Remove Photo
+                </button>
+            </div>
+        )}
+        {/* Hidden input for actual file selection */}
+        <input 
+          type="file" 
+          accept="image/*" 
+          onChange={handleFileChange} 
+          ref={fileInputRef} 
+          className="hidden" 
+        />
 
-        <div>
-          <label className="text-3xl font-bold text-blue-900 mb-4 block">
-            Date of photo
-          </label>
-          <input 
-            type="date" 
-            value={photoDate}
-            onChange={(e) => setPhotoDate(e.target.value)}
-            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
-          />
-        </div>
+        {/* --- Inputs (Display only if a photo is selected/captured or ready to be selected) --- */}
+        {(photoFile || capturedImageSrc || (!photoFile && !capturedImageSrc && !isCameraActive)) && ( // Always show if no picture yet, or if picture chosen
+            <>
+                <div>
+                    <label className="text-3xl font-bold text-blue-900 mb-4 block">
+                        Who or what is in this photo?
+                    </label>
+                    <input 
+                        type="text" 
+                        value={photoDescription}
+                        onChange={(e) => setPhotoDescription(e.target.value)}
+                        placeholder="Type details here..."
+                        className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
+                    />
+                </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col space-y-6 pt-6">
-          <button 
-            onClick={handlePhotoUpload}
-            disabled={isPhotoUploading}
-            className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
-          >
-            {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
-          </button>
-          
-          <button 
-            onClick={() => {
-                setPhotoUploadErrorMsg(''); // Clear error
-                setPhotoFile(null); // Clear form
-                setPhotoDescription('');
-                setPhotoDate('');
-                setCurrentScreen('dashboard');
-            }}
-            className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200"
-          >
-            Cancel
-          </button>
-        </div>
+                <div>
+                    <label className="text-3xl font-bold text-blue-900 mb-4 block">
+                        Date of photo
+                    </label>
+                    <input 
+                        type="date" 
+                        value={photoDate}
+                        onChange={(e) => setPhotoDate(e.target.value)}
+                        className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
+                    />
+                </div>
+            </>
+        )}
+        
+
+        {/* --- Action Buttons (only show if a photo is ready) --- */}
+        {(photoFile || capturedImageSrc) && (
+            <div className="flex flex-col space-y-6 pt-6">
+                <button 
+                    onClick={handlePhotoUpload}
+                    disabled={isPhotoUploading}
+                    className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+                >
+                    {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
+                </button>
+                
+                <button 
+                    onClick={() => {
+                        setPhotoUploadErrorMsg(''); 
+                        setPhotoFile(null); 
+                        setPhotoDescription('');
+                        setPhotoDate('');
+                        setIsCameraActive(false); 
+                        setCapturedImageSrc(null); 
+                        setCurrentScreen('dashboard');
+                    }}
+                    className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200"
+                >
+                    Cancel
+                </button>
+            </div>
+        )}
       </div>
 
       {/* Success Modal Overlay */}
