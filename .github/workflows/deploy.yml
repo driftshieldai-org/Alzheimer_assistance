@@ -11,6 +11,7 @@ env:
   GCP_REGION: us-central1
   GAR_REPO_NAME: alzhemier-ui
 
+jobs:
   build-push-train:
     name: 'Build & Push Docker Image for APP UI'
     runs-on: ubuntu-latest
