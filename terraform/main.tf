@@ -18,3 +18,17 @@ resource "google_project_iam_member" "sa_roles" {
   role    = each.value
   member  = "serviceAccount:${google_service_account.gcp_sa.email}"
 }
+
+resource "google_service_account" "backend_gcp_sa" {
+  account_id   = "alzheimer-backend-sa"
+  project      = var.project_id
+  display_name = "alzheimer backend Service Account"
+  description  = "Service account used in alzheimer backend"
+}
+
+resource "google_project_iam_member" "backend_sa_roles" {
+  for_each = toset(["roles/datastore.user"])
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
+}
