@@ -87,6 +87,7 @@ jobs:
        
   build-push-uicr:
     name: 'Build & Push Docker Image for APP UI'
+    needs: [terraform, changes_check]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && needs.changes_check.outputs.uicr == 'true'
     
