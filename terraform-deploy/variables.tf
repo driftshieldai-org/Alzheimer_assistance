@@ -39,3 +39,18 @@ variable "cloudrun_name" {
   type        = string
 }
 
+
+variable "backend_image_name" {
+  description = "Name of image created for backend cloud run"
+  type        = string
+}
+
+variable "backend_cloudrun_name" {
+  description = "Name of cloud run service created for backend"
+  type        = string
+}
+
+variable "backend_service_account_id" {
+  description = "The GCP service account used for application backend"
+  type        = string
+}
