@@ -1,65 +1,143 @@
 import express from 'express';
+import expressWs from 'express-ws';
+import WebSocket from 'ws'; // For connecting to Gemini
 import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
-import { protect } from '../middleware/authMiddleware.js';
-import aiSimulator from '../utils/aiSimulator.js'; // Our AI simulation
-import multer from 'multer'; // For parsing image data
 
 const router = express.Router();
 const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
 const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
-const bucketName = process.env.GCS_BUCKET_NAME;
-const bucket = storage.bucket(bucketName);
+const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
-// Multer config for base64 image coming from frontend
-const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
+// Ensure your GEMINI_API_KEY is in your .env / Cloud Run environment variables
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY; 
 
-// Endpoint to process a single live frame from the user's camera
-router.post('/process-frame', protect, upload.single('frame'), async (req, res) => {
-  try {
-    const userId = req.user.userId; // Get user ID from authenticated JWT
-    
-    if (!req.file) {
-      return res.status(400).json({ message: 'No image frame provided.' });
+const SYSTEM_INSTRUCTION = `
+You are a polite, helpful AI assistant with a soft, calming tone.
+You will be provided with reference photos of a user and their descriptions. 
+As I stream live video to you, continuously observe the person in the live stream.
+1. If the live stream MATCHES a reference photo, warmly greet them and politely state their description.
+2. If the live stream DOES NOT MATCH, politely analyze the scene and provide a soft-spoken explanation of the background.
+3. Keep your answers concise and respond exclusively using VOICE.
+`;
+
+// Helper: Get image from GCS directly as Base64 (No Signed URLs needed!)
+async function getGcsFileAsBase64(filename) {
+    const [fileContent] = await bucket.file(filename).download();
+    return fileContent.toString('base64');
+}
+
+// ----------------------------------------------------------------------
+// NEW WEBSOCKET ROUTE: Replaces the old POST '/process-frame'
+// ----------------------------------------------------------------------
+router.ws('/stream', async (ws, req) => {
+    // 1. Get user ID from the connection URL (e.g., wss://your-app.com/stream?userId=123)
+    const userId = req.query.userId;
+    if (!userId) {
+        ws.close(1008, "userId required");
+        return;
     }
 
-    // `req.file.buffer` contains the image data (e.g., JPEG buffer)
-    const liveFrameBuffer = req.file.buffer;
+    try {
+        // 2. Fetch User Metadata and Photos from Firestore & GCS
+        const photosSnapshot = await db.collection('users').doc(userId).collection('photos').get();
+        const referencePhotos = [];
+        
+        for (const doc of photosSnapshot.docs) {
+            const photoData = doc.data();
+            if (photoData.filename) {
+                const base64Image = await getGcsFileAsBase64(photoData.filename);
+                referencePhotos.push({
+                    description: photoData.description || "No description provided",
+                    mimeType: "image/jpeg",
+                    data: base64Image
+                });
+            }
+        }
 
-    // 1. Fetch user's reference photos metadata from Firestore
-    const photosSnapshot = await db.collection('users').doc(userId).collection('photos').get();
-    const referencePhotosMetadata = photosSnapshot.docs.map(doc => doc.data());
+        // 3. Open WebSocket Connection directly to the Gemini 2.0 Flash Live API
+        const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
+        const geminiWs = new WebSocket(geminiWsUrl);
 
-    // 2. Generate signed URLs for AI Agent to access reference photos (if needed)
-    // For our simulator, we're not actually sending to an external AI service yet,
-    // so this step is conceptual. A real AI service might need direct access.
-    const referencePhotoUrls = await Promise.all(referencePhotosMetadata.map(async (photo) => {
-      // In a real scenario, this is where you'd sign the URL for a limited time
-      // const [url] = await bucket.file(photo.filename).getSignedUrl({
-      //   action: 'read',
-      //   expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-      // });
-      return photo.imageUrl; // For now, just return the public URL
-    }));
+        geminiWs.on('open', () => {
+            console.log(`Connected to Gemini Live for User: ${userId}`);
 
-    // 3. Call the AI Simulator (pass live frame buffer and reference photos)
-    const aiResponse = await aiSimulator.processLiveFrame(
-      liveFrameBuffer, 
-      userId, 
-      referencePhotosMetadata
-    );
+            // A. Send the Setup Configuration (Instructions & Voice)
+            geminiWs.send(JSON.stringify({
+                setup: {
+                    model: "models/gemini-2.0-flash",
+                    systemInstruction: {
+                        parts: [{ text: SYSTEM_INSTRUCTION }]
+                    },
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } // Soft Voice
+                        }
+                    }
+                }
+            }));
 
-    // 4. Send AI's generated audio back to the frontend
-    res.status(200).json({ 
-      message: 'Frame processed', 
-      description: aiResponse.text,
-      audio: aiResponse.audioBase64 
-    });
+            // B. Send the Reference Photos to Gemini's Memory Immediately
+            referencePhotos.forEach(photo => {
+                geminiWs.send(JSON.stringify({
+                    clientContent: {
+                        turns: [{
+                            role: "user",
+                            parts: [
+                                { text: `Reference Person Description: ${photo.description}` },
+                                { inlineData: { mimeType: photo.mimeType, data: photo.data } }
+                            ]
+                        }],
+                        turnComplete: true
+                    }
+                }));
+            });
+        });
 
-  } catch (error) {
-    console.error('Live Frame Processing Error:', error);
-    res.status(500).json({ message: 'Server error during live frame processing.' });
-  }
+        // 4. Handle incoming Webcam frames from your Frontend browser
+        ws.on('message', (msg) => {
+            const data = JSON.parse(msg);
+            
+            // Expected frontend payload: { type: "frame", frameBase64: "..." }
+            if (data.type === "frame" && geminiWs.readyState === WebSocket.OPEN) {
+                geminiWs.send(JSON.stringify({
+                    realtimeInput: {
+                        mediaChunks: [{
+                            mimeType: "image/jpeg",
+                            data: data.frameBase64
+                        }]
+                    }
+                }));
+            }
+        });
+
+        // 5. Handle incoming Audio Responses from Gemini and send to Frontend
+        geminiWs.on('message', (data) => {
+            const response = JSON.parse(data);
+            
+            if (response.serverContent?.modelTurn) {
+                const parts = response.serverContent.modelTurn.parts;
+                for (const part of parts) {
+                    if (part.inlineData && part.inlineData.data) {
+                        // Forward the base64 PCM audio chunk to the browser to play
+                        ws.send(JSON.stringify({
+                            type: "audio",
+                            audioBase64: part.inlineData.data
+                        }));
+                    }
+                }
+            }
+        });
+
+        // 6. Cleanup connections when the user leaves the page
+        ws.on('close', () => geminiWs.close());
+        geminiWs.on('close', () => ws.close());
+
+    } catch (error) {
+        console.error('Live Stream Error:', error);
+        ws.close(1011, "Server Error");
+    }
 });
 
 export default router;
