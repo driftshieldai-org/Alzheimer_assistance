@@ -76,7 +76,7 @@ resource "google_cloud_run_v2_service" "backend" {
         }
         env {
           name  = "GEMINI_API_KEY"
-          value = 'test'
+          value = "test"
         }
 
     resources {
