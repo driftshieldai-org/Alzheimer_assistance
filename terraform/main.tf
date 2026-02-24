@@ -56,6 +56,14 @@ resource "google_project_iam_member" "backend_storage_access" {
   member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
 }
 
+# Grant the Backend Service Account permissions to 
+resource "google_project_iam_member" "firestore_access" {
+  project = var.project_id
+  role    = "roles/datastore.user" 
+  member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
+}
+
+
 
 resource "google_firestore_database" "default_firestore_database" {
   project     = var.project_id
