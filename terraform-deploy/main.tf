@@ -66,6 +66,19 @@ resource "google_cloud_run_v2_service" "backend" {
         value = "alzheimers_app_production_secret_key" 
       }
 
+      env {
+          name  = "GCS_BUCKET_NAME"
+          value = "memorymate-user-photos-${var.project_id}"
+        }
+        env {
+          name  = "GCP_PROJECT_ID"
+          value = var.project_id
+        }
+        env {
+          name  = "GEMINI_API_KEY"
+          value = 'test'
+        }
+
     resources {
         limits = {
           cpu    = 1
