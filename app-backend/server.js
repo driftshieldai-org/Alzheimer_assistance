@@ -1,26 +1,29 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import expressWs from 'express-ws'; // NEW: WebSocket integration
 import authRoutes from './routes/authRoutes.js';
 import photoRoutes from './routes/photoRoutes.js';
-import liveRoutes from './routes/liveRoutes.js'; // NEW
+import liveRoutes from './routes/liveRoutes.js'; 
 
-// Load environment variables
 dotenv.config();
 
 const app = express();
 
+// IMPORTANT: Apply express-ws to your app instance BEFORE defining routes
+const wsInstance = expressWs(app); // This modifies the 'app' object adding .ws
+
 // Middleware
 app.use(cors()); 
-app.use(express.json({ limit: '10mb' })); // Increase JSON body limit for base64 images
-// For file uploads (which `multer` handles), ensure express.urlencoded isn't interfering negatively
+app.use(express.json({ limit: '10mb' })); 
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/photos', photoRoutes);
-app.use('/api/live', liveRoutes); // NEW: Live processing routes
+// For WebSocket routes, you use app.ws directly or pass the wsInstance
+app.use('/api/live', liveRoutes); 
+
 
 // Basic health check route for Google Cloud Run
 app.get('/health', (req, res) => {
