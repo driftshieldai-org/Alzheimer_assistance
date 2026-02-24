@@ -1,3 +1,9 @@
+resource "google_project_service" "firstore_api" {
+  project = var.project_id
+  service = "firestore.googleapis.com"
+  disable_on_destroy = false
+}
+
 resource "google_artifact_registry_repository" "my_repo" {
   location      = var.region
   repository_id = var.gar_repo_name
@@ -48,4 +54,21 @@ resource "google_project_iam_member" "backend_storage_access" {
   project = var.project_id
   role    = "roles/storage.objectAdmin" # Allows creating, updating, deleting objects
   member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
+}
+
+
+resource "google_firestore_database" "default_firestore_database" {
+  project     = var.project_id
+  # The name for the database. "(default)" refers to the default database.
+  # You can also use a custom database ID here.
+  name        = "alzheimer"
+  location_id = var.region
+  type        = "FIRESTORE_NATIVE"
+  delete_protection_state = "DELETE_PROTECTION_ENABLED"
+  deletion_policy         = "ABANDON" # Or "DELETE" if you want Terraform to delete it.
+
+  # Ensure the API is enabled before attempting to create the database.
+  depends_on = [
+    google_project_service.firestore_api,
+  ]
 }
