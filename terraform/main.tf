@@ -69,7 +69,7 @@ resource "google_firestore_database" "default_firestore_database" {
   project     = var.project_id
   # The name for the database. "(default)" refers to the default database.
   # You can also use a custom database ID here.
-  name        = "alzheimer"
+  name        = "(default)"
   location_id = var.region
   type        = "FIRESTORE_NATIVE"
   delete_protection_state = "DELETE_PROTECTION_ENABLED"
