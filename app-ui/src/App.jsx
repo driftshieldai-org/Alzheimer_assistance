@@ -57,7 +57,6 @@ export default function MemoryMateApp() {
   const wsRef = useRef(null); // NEW: WebSocket reference
   const captureIntervalIdRef = useRef(null); // To manage interval for sending frames
 
-
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
     let timer;
