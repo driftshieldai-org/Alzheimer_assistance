@@ -11,8 +11,8 @@ import {
   CloudUpload, 
   ImageIcon,
   CameraIcon,
-  PlayIcon, // NEW for audio playback
-  StopCircle // NEW for stopping live assistance
+  PlayIcon, 
+  StopCircle 
 } from 'lucide-react';
 
 export default function MemoryMateApp() {
@@ -42,19 +42,20 @@ export default function MemoryMateApp() {
   const fileInputRef = useRef(null); 
 
   // --- Live Camera State Variables (for Photo Capture) ---
-  const [isCameraActive, setIsCameraActive] = useState(false); // For Store Photos screen
-  const webcamRefCapture = useRef(null); // Ref for Webcam component on Store Photos screen
-  const [capturedImageSrc, setCapturedImageSrc] = useState(null); // Stores base64 of captured image
+  const [isCameraActive, setIsCameraActive] = useState(false); 
+  const webcamRefCapture = useRef(null); 
+  const [capturedImageSrc, setCapturedImageSrc] = useState(null); 
 
-  // --- NEW: Live Assistance State Variables ---
+  // --- NEW: Live Assistance State Variables (WebSocket based) ---
   const [isLiveAssistanceActive, setIsLiveAssistanceActive] = useState(false);
-  const webcamRefLive = useRef(null); // Ref for Webcam component on Live View screen
+  const webcamRefLive = useRef(null); 
   const [liveVideoError, setLiveVideoError] = useState('');
-  const [processingFrame, setProcessingFrame] = useState(false);
-  const [aiAudioResponse, setAiAudioResponse] = useState(''); // Stores base64 audio or URL
-  const [aiTextResponse, setAiTextResponse] = useState(''); // Stores text response
-  const audioPlayerRef = useRef(null); // Ref for audio element
-  const captureIntervalRef = useRef(null); // To manage interval for sending frames
+  const [processingFrame, setProcessingFrame] = useState(false); // Indicates if A.I. is processing current frame
+  const [aiAudioResponse, setAiAudioResponse] = useState(''); 
+  const [aiTextResponse, setAiTextResponse] = useState(''); 
+  const audioPlayerRef = useRef(null); 
+  const wsRef = useRef(null); // NEW: WebSocket reference
+  const captureIntervalIdRef = useRef(null); // To manage interval for sending frames
 
 
   // Success modal timer logic for 'store_photos'
@@ -69,7 +70,7 @@ export default function MemoryMateApp() {
     return () => clearTimeout(timer);
   }, [showSuccess]);
 
-  // --- NEW: Live Assistance Effects ---
+  // --- NEW: Live Assistance Effects (WebSocket & Audio) ---
   useEffect(() => {
     if (aiAudioResponse && audioPlayerRef.current) {
         audioPlayerRef.current.play().catch(e => console.error("Error playing audio:", e));
@@ -77,16 +78,23 @@ export default function MemoryMateApp() {
   }, [aiAudioResponse]);
 
   useEffect(() => {
-    // Cleanup interval if component unmounts or leaves live view
+    // --- WebSocket Cleanup ---
+    // This runs when the component unmounts or currentScreen changes away from 'live_view'
     return () => {
-      if (captureIntervalRef.current) {
-        clearInterval(captureIntervalRef.current);
-        captureIntervalRef.current = null;
+      if (wsRef.current) {
+        console.log("Closing WebSocket connection.");
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (captureIntervalIdRef.current) {
+        clearInterval(captureIntervalIdRef.current);
+        captureIntervalIdRef.current = null;
       }
     };
-  }, []);
+  }, [currentScreen]); // Cleanup whenever currentScreen changes
 
-  // --- NEW: Live Assistance Functions ---
+
+  // --- NEW: Live Assistance Functions (WebSocket based) ---
   const startLiveAssistance = () => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -100,14 +108,58 @@ export default function MemoryMateApp() {
     setAiTextResponse('');
     setAiAudioResponse('');
 
-    // Start sending frames periodically
-    captureIntervalRef.current = setInterval(processLiveFrame, 2000); // Send frame every 2 seconds
+    // --- Establish WebSocket Connection ---
+    // Dynamically determine WebSocket URL based on current host
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
+
+    wsRef.current = new WebSocket(wsUrl);
+
+    wsRef.current.onopen = () => {
+      console.log('WebSocket connected.');
+      // Start sending frames periodically after connection is open
+      captureIntervalIdRef.current = setInterval(sendLiveFrame, 2000); // Send frame every 2 seconds
+    };
+
+    wsRef.current.onmessage = (event) => {
+      console.log('WebSocket message received:', event.data);
+      const data = JSON.parse(event.data);
+      if (data.error) {
+        setLiveVideoError(`AI Message Error: ${data.error}`);
+        setProcessingFrame(false);
+      } else {
+        setAiTextResponse(data.description);
+        setAiAudioResponse(data.audio);
+        setProcessingFrame(false); // Processing finished, ready for next
+      }
+    };
+
+    wsRef.current.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setLiveVideoError("Connection error. Please try again.");
+      stopLiveAssistance();
+    };
+
+    wsRef.current.onclose = () => {
+        console.log('WebSocket disconnected.');
+        setProcessingFrame(false);
+        if (captureIntervalIdRef.current) {
+          clearInterval(captureIntervalIdRef.current);
+          captureIntervalIdRef.current = null;
+        }
+        // Only reset active state if it wasn't a deliberate stop
+        if(isLiveAssistanceActive) setIsLiveAssistanceActive(false); 
+    };
   };
   
   const stopLiveAssistance = () => {
-    if (captureIntervalRef.current) {
-      clearInterval(captureIntervalRef.current);
-      captureIntervalRef.current = null;
+    if (captureIntervalIdRef.current) {
+      clearInterval(captureIntervalIdRef.current);
+      captureIntervalIdRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
     setIsLiveAssistanceActive(false);
     setAiTextResponse('');
@@ -115,71 +167,34 @@ export default function MemoryMateApp() {
     setProcessingFrame(false);
   };
 
-  const processLiveFrame = async () => {
-    if (!webcamRefLive.current || processingFrame) return;
+  const sendLiveFrame = async () => {
+    if (!webcamRefLive.current || processingFrame) return; // Don't send if already processing
 
-    setProcessingFrame(true);
-    setLiveVideoError('');
-    setAiTextResponse('');
-    setAiAudioResponse('');
-
-    const imageSrc = webcamRefLive.current.getScreenshot({width: 640, height: 360}); // Capture screenshot
-    if (!imageSrc) {
-        setLiveVideoError("Failed to capture image from webcam.");
-        setProcessingFrame(false);
-        return;
-    }
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-        setLiveVideoError("Authentication token missing for live assistance.");
-        stopLiveAssistance();
-        setCurrentScreen('login');
-        return;
-    }
-
-    // Convert base64 to Blob for FormData
-    const byteString = atob(imageSrc.split(',')[1]);
-    const mimeString = imageSrc.split(',')[0].split(':')[1].split(';')[0];
-    const ab = new ArrayBuffer(byteString.length);
-    const ia = new Uint8Array(ab);
-    for (let i = 0; i < byteString.length; i++) {
-        ia[i] = byteString.charCodeAt(i);
-    }
-    const blob = new Blob([ab], { type: mimeString });
-
-    const formData = new FormData();
-    formData.append('frame', blob, 'live-frame.jpeg'); // 'frame' key must match backend multer config
+    setProcessingFrame(true); // Indicate that a frame is being processed
+    setAiTextResponse("Listening and analyzing..."); // Show immediate feedback
+    setAiAudioResponse(''); // Clear previous audio
 
     try {
-      const response = await fetch('/api/live/process-frame', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
+        const imageSrc = webcamRefLive.current.getScreenshot({width: 640, height: 360}); 
+        if (!imageSrc) {
+            setLiveVideoError("Failed to capture image from webcam.");
+            setProcessingFrame(false);
+            return;
+        }
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        const textError = await response.text();
-        console.error("Server returned HTML or text instead of JSON (Live Frame):", textError);
-        throw new Error("Server configuration error for live frame. Check console.");
-      }
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setAiTextResponse(data.description);
-        setAiAudioResponse(data.audio); // Play audio if available
-      } else {
-        setLiveVideoError(data.message || 'Error processing live frame.');
-      }
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            // Send the base64 image over WebSocket
+            wsRef.current.send(JSON.stringify({ frame: imageSrc }));
+        } else {
+            console.warn("WebSocket not open, cannot send frame.");
+            setLiveVideoError("Live assistance connection lost.");
+            setProcessingFrame(false);
+            stopLiveAssistance(); // Attempt to stop to allow restart
+        }
     } catch (err) {
-      console.error("Live Frame API Error:", err);
-      setLiveVideoError('Failed to connect to the backend for live processing.');
-    } finally {
-      setProcessingFrame(false);
+        console.error("Error capturing or sending frame:", err);
+        setLiveVideoError("Failed to capture or send video frame.");
+        setProcessingFrame(false);
     }
   };
 
@@ -415,7 +430,7 @@ export default function MemoryMateApp() {
       setPhotoFile(null); 
       setPhotoUploadErrorMsg('');
     },
-    [webcamRefCapture, setCapturedImageSrc]
+    [webcamRefCapture]
   );
   
   const handleRetryCameraCapture = () => {
@@ -439,7 +454,7 @@ export default function MemoryMateApp() {
         setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
         setPhotoFile(null); setPhotoDescription(''); setPhotoDate('');
         setIsCameraActive(false); setCapturedImageSrc(null); 
-        stopLiveAssistance(); // Ensure live assistance is stopped
+        stopLiveAssistance(); // Ensure live assistance is stopped when going back from any screen
         onClick();
       }}
       className="flex items-center justify-center w-full max-w-xl bg-slate-200 text-blue-900 text-3xl font-bold py-6 px-8 rounded-2xl shadow-md border-4 border-slate-300 hover:bg-slate-300 active:bg-slate-400 transition-colors mt-6"
@@ -649,7 +664,7 @@ export default function MemoryMateApp() {
               ref={webcamRefCapture}
               screenshotFormat="image/jpeg"
               videoConstraints={videoConstraintsCapture}
-              className="rounded-xl w-full max-w-2xl aspect-video object-cover" // Ensure it covers the area and maintains aspect ratio
+              className="rounded-xl w-full max-w-2xl aspect-video object-cover" 
             />
             <div className="flex w-full justify-around space-x-4">
               <button 
@@ -681,7 +696,7 @@ export default function MemoryMateApp() {
                 <ArrowLeft size={32} className="mr-4" /> Retake Photo
               </button>
               <button 
-                onClick={handlePhotoUpload} // Directly trigger upload with captured image
+                onClick={handlePhotoUpload} 
                 disabled={isPhotoUploading || !photoDescription || !photoDate}
                 className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-blue-800 transition-colors flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed"
               >
@@ -745,7 +760,7 @@ export default function MemoryMateApp() {
         
 
         {/* --- Action Buttons (only show if a photo is ready AND NOT already handled by capturedImageSrc buttons) --- */}
-        {(photoFile && !capturedImageSrc) && ( // Show save button only if a file is uploaded, and not for a captured image that has its own save button
+        {(photoFile && !capturedImageSrc) && ( 
             <div className="flex flex-col space-y-6 pt-6">
                 <button 
                     onClick={handlePhotoUpload}
@@ -793,7 +808,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 6. UNDERSTAND THE PLACE LIVE SCREEN (UPDATED)
+  // 6. UNDERSTAND THE PLACE LIVE SCREEN (UPDATED for WebSockets)
   const renderLiveView = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 bg-slate-100 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Live View Assistance</h2>
@@ -816,13 +831,13 @@ export default function MemoryMateApp() {
               onUserMediaError={(err) => {
                 console.error("Webcam Error:", err);
                 setLiveVideoError("Could not access camera. Please allow camera permissions.");
-                stopLiveAssistance(); // Stop if camera fails
+                stopLiveAssistance(); 
               }}
             />
             {/* Red recording dot */}
             <div className="absolute top-6 right-6 flex items-center bg-black/50 px-4 py-2 rounded-full">
               <div className="w-6 h-6 rounded-full bg-red-500 animate-pulse mr-3"></div>
-              <span className="text-white text-xl font-bold">LIVE</span>
+              <span className="text-white text-xl font-bold">LIVE STREAM</span> {/* Updated text */}
             </div>
           </div>
 
@@ -838,11 +853,11 @@ export default function MemoryMateApp() {
               </div>
             </div>
             <span className="text-4xl font-extrabold text-blue-900 text-center">
-              {processingFrame ? 'Listening and analyzing...' : (aiTextResponse || 'Awaiting input...')}
+              {processingFrame ? 'Sending to A.I. for analysis...' : (aiTextResponse || 'Awaiting input...')}
             </span>
             {aiAudioResponse && (
                 <div className="mt-4">
-                  <audio ref={audioPlayerRef} src={aiAudioResponse} controls className="hidden"></audio> {/* Hidden controls, audio plays via useEffect */}
+                  <audio ref={audioPlayerRef} src={aiAudioResponse} controls className="hidden"></audio>
                   <button onClick={() => audioPlayerRef.current.play()} className="bg-blue-600 text-white p-4 rounded-xl text-2xl font-bold flex items-center hover:bg-blue-700">
                     <PlayIcon size={32} className="mr-3" /> Play Message Again
                   </button>
