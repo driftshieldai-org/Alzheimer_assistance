@@ -61,9 +61,10 @@ router.post('/signup', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Signup Error:', error);
-    res.status(500).json({ message: 'Server error during signup.' });
-  }
+  // Log the full error object for better debugging in Cloud Logging
+  console.error('Signup Error:', error.message, error.stack);
+  res.status(500).json({ message: 'Server error during signup.' });
+}
 });
 
 // --- LOGIN ROUTE: Now uses userId instead of email ---
