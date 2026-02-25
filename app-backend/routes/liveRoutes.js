@@ -33,7 +33,7 @@ Keep your answers concise and respond exclusively using VOICE.
     }
 
     // Now router.ws WILL work!
-    router.ws('/stream', async (ws, req) => {
+    router.ws('/ws/live/process-stream', async (ws, req) => {
         const userId = req.query.userId;
         if (!userId) {
             ws.close(1008, "userId required");
