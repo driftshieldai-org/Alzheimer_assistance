@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 
 // EXPORT A FUNCTION that accepts the patched 'app'
 export default function (app) {
-    const router = express.Router();
+    // const router = express.Router();
     
     const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
     const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
@@ -34,7 +34,7 @@ Keep your answers concise and respond exclusively using VOICE.
     }
 
     // Now router.ws WILL work!
-    router.ws('/ws/live/process-stream', async (ws, req) => {
+    app.ws('/ws/live/process-stream', async (ws, req) => {
         //const userId = req.query.userId;
         const token = req.query.token;
         //if (!userId) {
@@ -151,5 +151,5 @@ Keep your answers concise and respond exclusively using VOICE.
         }
     });
 
-    return router;
+    // return router;
 }
