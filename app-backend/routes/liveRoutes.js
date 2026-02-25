@@ -135,31 +135,3 @@ Keep your answers concise and respond exclusively using VOICE.
 
     return router;
 }
-Step 2: Update server.js
-Now update your server.js file so it patches the Express app with WebSockets before invoking the routes.
-
-import express from 'express';
-import expressWs from 'express-ws'; // Import this here
-import liveRoutes from './routes/liveRoutes.js';
-// ... other imports (authRoutes, photoRoutes, etc)
-
-const app = express();
-
-// 1. Initialize express-ws FIRST so 'app.ws' and 'router.ws' exist
-expressWs(app); 
-
-// 2. Set up your standard middlewares
-app.use(express.json());
-// ... your cors and other setups ...
-
-// 3. Mount the routes. Notice we are passing 'app' into liveRoutes()
-app.use('/api/live', liveRoutes(app)); 
-
-// (Mount your other normal routes as usual)
-// app.use('/api/auth', authRoutes);
-// app.use('/api/photos', photoRoutes);
-
-const port = process.env.PORT || 8080;
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Server is up and listening on port ${port}`);
-});
