@@ -50,7 +50,7 @@ try {
       const geminiWs = new WebSocket(geminiWsUrl);
 geminiWs.on('open', () => {
         // Fixed missing backticks
-        console.log(Connected to Gemini Live for User: ${});
+        console.log(Connected to Gemini Live for User: ${userId});
 geminiWs.send(JSON.stringify({
           setup: {
             model: "models/gemini-2.0-flash",
