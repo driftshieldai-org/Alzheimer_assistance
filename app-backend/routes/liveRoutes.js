@@ -2,6 +2,7 @@ import express from 'express';
 import WebSocket from 'ws'; // For connecting to Gemini
 import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
+import jwt from 'jsonwebtoken';
 
 // EXPORT A FUNCTION that accepts the patched 'app'
 export default function (app) {
@@ -34,10 +35,27 @@ Keep your answers concise and respond exclusively using VOICE.
 
     // Now router.ws WILL work!
     router.ws('/ws/live/process-stream', async (ws, req) => {
-        const userId = req.query.userId;
-        if (!userId) {
-            ws.close(1008, "userId required");
+        //const userId = req.query.userId;
+        const token = req.query.token;
+        //if (!userId) {
+        if (!token) {
+            ws.close(1008, "token required");
             return;
+        }
+
+        let userId;
+        try {
+          // Verify and decode the token
+          // Make sure process.env.JWT_SECRET matches what you used to sign the token!
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          
+          // Extract the userId. 
+          userId = decoded.userId; 
+          
+        } catch (error) {
+          console.error('JWT Verification Error:', error.message);
+          ws.close(1008, "Invalid or expired token");
+          return;
         }
 
         try {
