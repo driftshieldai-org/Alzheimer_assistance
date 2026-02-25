@@ -110,7 +110,7 @@ export default function MemoryMateApp() {
     // --- Establish WebSocket Connection ---
     // Dynamically determine WebSocket URL based on current host
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
+    const wsUrl = `${protocol}//${BACKEND_URL}/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
 
     wsRef.current = new WebSocket(wsUrl);
 
