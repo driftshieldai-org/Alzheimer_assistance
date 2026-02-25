@@ -17,7 +17,7 @@ export default function (app) {
   const bucket = storage.bucket(bucketName);
    
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  const SYSTEM_INSTRUCTION = You are a polite, helpful AI assistant with a soft, calming tone. You will be provided with reference photos of a user and their descriptions. provide both the code completely As I stream live video to you, continuously observe the person in the live stream. If the live stream MATCHES a reference photo, warmly greet them and politely state their description. If the live stream DOES NOT MATCH, politely analyze the scene and provide a soft-spoken explanation of the background. Keep your answers concise and respond exclusively using VOICE.;
+  const SYSTEM_INSTRUCTION = `You are a polite, helpful AI assistant with a soft, calming tone. You will be provided with reference photos of a user and their descriptions. provide both the code completely As I stream live video to you, continuously observe the person in the live stream. If the live stream MATCHES a reference photo, warmly greet them and politely state their description. If the live stream DOES NOT MATCH, politely analyze the scene and provide a soft-spoken explanation of the background. Keep your answers concise and respond exclusively using VOICE.`;
 async function getGcsFileAsBase64(filename) {
     const [fileContent] = await bucket.file(filename).download();
     return fileContent.toString('base64');
