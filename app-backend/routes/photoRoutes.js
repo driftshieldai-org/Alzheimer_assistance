@@ -2,18 +2,17 @@ import express from 'express';
 import multer from 'multer';
 import { Storage } from '@google-cloud/storage';
 import { Firestore } from '@google-cloud/firestore';
-import { protect } from '../middleware/authMiddleware.js'; // Import our new middleware
-import { v4 as uuidv4 } from 'uuid'; // For unique filenames
+import { protect } from '../middleware/authMiddleware.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
 
 const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
 const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
 
-const bucketName = process.env.GCS_BUCKET_NAME; // Get bucket name from env var
+const bucketName = process.env.GCS_BUCKET_NAME;
 const bucket = storage.bucket(bucketName);
 
-// Configure Multer to store file in memory (only for Cloud Storage uploads)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -28,13 +27,11 @@ const upload = multer({
   }
 });
 
-// Protect this route with our authentication middleware
 router.post('/upload', protect, upload.single('photo'), async (req, res) => {
   try {
     const { description, photoDate } = req.body;
-    const userId = req.user.userId; // Get userId from the authenticated request
+    const userId = req.user.userId;
 
-    // 1. Basic Validation
     if (!req.file) {
       return res.status(400).json({ message: 'No photo file provided.' });
     }
@@ -42,9 +39,9 @@ router.post('/upload', protect, upload.single('photo'), async (req, res) => {
       return res.status(400).json({ message: 'Photo description and date are required.' });
     }
 
-    // 2. Generate a unique filename for Cloud Storage
     const fileExtension = req.file.originalname.split('.').pop();
-    const fileName = `photos/${userId}/${uuidv4()}.${fileExtension}`; // user_id/unique_id.ext
+    // Corrected fileName construction to include user ID and proper uuid/extension
+    const fileName = `photos/${userId}/${uuidv4()}.${fileExtension}`; 
     const blob = bucket.file(fileName);
     const blobStream = blob.createWriteStream({
       resumable: false,
@@ -59,25 +56,27 @@ router.post('/upload', protect, upload.single('photo'), async (req, res) => {
     });
 
     blobStream.on('finish', async () => {
-      // 3. Make the image publicly accessible (optional, depends on app needs)
-      await blob.makePublic();
-      const publicUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+      // *** REMOVED: await blob.makePublic(); ***
+      // We are not making the image publicly accessible anymore.
+      // The 'imageUrl' in Firestore will now store the GCS object name/path.
 
       // 4. Save photo metadata to Firestore
-      const photoRef = db.collection('users').doc(userId).collection('photos').doc(); // Auto-generate photo ID
-      
+      const photoRef = db.collection('users').doc(userId).collection('photos').doc();
+        
       await photoRef.set({
         userId: userId,
         description: description,
         photoDate: photoDate,
-        imageUrl: publicUrl,
-        filename: fileName,
+        // Store the GCS object name (fileName) instead of a public URL
+        imageUrl: fileName, 
+        filename: fileName, // Keeping filename for consistency in your existing code
         uploadedAt: Firestore.FieldValue.serverTimestamp()
       });
 
       res.status(200).json({ 
         message: 'Photo uploaded and details saved successfully!', 
-        imageUrl: publicUrl,
+        // Return the GCS object name as the reference
+        gcsObjectName: fileName, 
         photoId: photoRef.id
       });
     });
@@ -87,7 +86,7 @@ router.post('/upload', protect, upload.single('photo'), async (req, res) => {
   } catch (error) {
     console.error('Photo Upload Error:', error);
     if (error.message === 'Only image files are allowed!') {
-        return res.status(400).json({ message: error.message });
+      return res.status(400).json({ message: error.message });
     }
     res.status(500).json({ message: 'Server error during photo upload.' });
   }
