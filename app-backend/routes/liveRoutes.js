@@ -51,6 +51,7 @@ Keep your answers concise and respond exclusively using VOICE.
           
           // Extract the userId. 
           userId = decoded.userId; 
+          console.log(`🟢 2. JWT Verified for User: ${userId}`);  
           
         } catch (error) {
           console.error('JWT Verification Error:', error.message);
@@ -59,6 +60,7 @@ Keep your answers concise and respond exclusively using VOICE.
         }
 
         try {
+            console.log("⏳ 3. Fetching photos from Firestore/GCS...");
             const photosSnapshot = await db.collection('users').doc(userId).collection('photos').get();
             const referencePhotos = [];
              
@@ -74,13 +76,26 @@ Keep your answers concise and respond exclusively using VOICE.
                     });
                 }
             }
+            
+            console.log(`✅ 4. Loaded ${referencePhotos.length} reference photos.`);
 
+            console.log("⏳ 5. Connecting to Gemini Live API...");
+      
             // Fixed missing backticks around the URL string
             const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
             const geminiWs = new WebSocket(geminiWsUrl);
 
+            // --- NEW: GEMINI ERROR AND CLOSE HANDLERS ---
+              geminiWs.on('error', (err) => {
+                console.error("❌ GEMINI WEBSOCKET ERROR:", err.message || err);
+              });
+        
+              geminiWs.on('close', (code, reason) => {
+                console.log(`⚠️ Gemini WS Closed. Code: ${code}, Reason: ${reason}`);
+              });
+
             geminiWs.on('open', () => {
-                // Fixed missing backticks
+                console.log(`✅ 6. Connected to Gemini Live for User: ${userId}`);
                 console.log(`Connected to Gemini Live for User: ${userId}`);
 
                 geminiWs.send(JSON.stringify({
