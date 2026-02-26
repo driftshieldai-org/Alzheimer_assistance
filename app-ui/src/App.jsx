@@ -57,8 +57,9 @@ export default function MemoryMateApp() {
   const wsRef = useRef(null); // NEW: WebSocket reference
   const captureIntervalIdRef = useRef(null); // To manage interval for sending frames
 
-  const BACKEND_API_BASE = (window.env && window.env.BACKEND_URL)
-    
+  //const BACKEND_API_BASE = (window.env && window.env.BACKEND_URL)
+    const BACKEND_API_BASE = "https://alzheimer-backend-902738993392.us-central1.run.app"
+      
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
     let timer;
