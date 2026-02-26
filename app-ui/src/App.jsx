@@ -58,7 +58,6 @@ export default function MemoryMateApp() {
   const captureIntervalIdRef = useRef(null); // To manage interval for sending frames
 
   const BACKEND_API_BASE = (window.env && window.env.BACKEND_URL)
-  ? window.env.BACKEND_URL
     
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
