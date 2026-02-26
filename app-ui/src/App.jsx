@@ -57,7 +57,7 @@ export default function MemoryMateApp() {
   const wsRef = useRef(null); // NEW: WebSocket reference
   const captureIntervalIdRef = useRef(null); // To manage interval for sending frames
 
-  const backendApiUrl = (window.env && window.env.BACKEND_URL !== "PLACEHOLDER_BACKEND_URL")
+  const BACKEND_API_BASE = (window.env && window.env.BACKEND_URL)
   ? window.env.BACKEND_URL
     
   // Success modal timer logic for 'store_photos'
@@ -117,9 +117,9 @@ export default function MemoryMateApp() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let backendHost;
     try {
-        backendHost = new URL(backendApiUrl).host;
+        backendHost = new URL(BACKEND_API_BASE).host;
     } catch(e) {
-        console.error("Invalid Backend URL:", backendApiUrl);
+        console.error("Invalid Backend URL:", BACKEND_API_BASE);
         return; 
     }
     
