@@ -22,8 +22,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/photos', photoRoutes);
 // For WebSocket routes, you use app.ws directly or pass the wsInstance
-app.use('/api/live', liveRoutes); 
-
+//app.use('/api/live', liveRoutes); 
+liveRoutes(app);
 
 // Basic health check route for Google Cloud Run
 app.get('/health', (req, res) => {

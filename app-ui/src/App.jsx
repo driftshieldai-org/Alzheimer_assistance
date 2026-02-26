@@ -72,6 +72,8 @@ export default function MemoryMateApp() {
   // --- NEW: Live Assistance Effects (WebSocket & Audio) ---
   useEffect(() => {
     if (aiAudioResponse && audioPlayerRef.current) {
+        // audioPlayerRef.current.play().catch(e => console.error("Error playing audio:", e));
+        audioPlayerRef.current.src = aiAudioResponse; // Set the audio source
         audioPlayerRef.current.play().catch(e => console.error("Error playing audio:", e));
     }
   }, [aiAudioResponse]);
@@ -110,7 +112,7 @@ export default function MemoryMateApp() {
     // --- Establish WebSocket Connection ---
     // Dynamically determine WebSocket URL based on current host
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${BACKEND_URL}/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
+    const wsUrl = `${protocol}//${BACKEND_URL}/api/live/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
 
     wsRef.current = new WebSocket(wsUrl);
 
@@ -127,9 +129,13 @@ export default function MemoryMateApp() {
         setLiveVideoError(`AI Message Error: ${data.error}`);
         setProcessingFrame(false);
       } else {
-        setAiTextResponse(data.description);
-        setAiAudioResponse(data.audio);
-        setProcessingFrame(false); // Processing finished, ready for next
+        //setAiTextResponse(data.description);
+        //setAiAudioResponse(data.audio);
+        //setProcessingFrame(false); // Processing finished, ready for next
+        setAiTextResponse(data.description || "AI is speaking..."); // Display text if available, or a default
+        // Add the data URI prefix for the audio base64
+        setAiAudioResponse(`data:audio/mp3;base64,${data.audioBase64}`);
+        setProcessingFrame(false);
       }
     };
 
@@ -183,7 +189,10 @@ export default function MemoryMateApp() {
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             // Send the base64 image over WebSocket
-            wsRef.current.send(JSON.stringify({ frame: imageSrc }));
+            // wsRef.current.send(JSON.stringify({ frame: imageSrc }));
+            const base64Data = imageSrc.split(',')[1]; // Extract the base64 part
+            wsRef.current.send(JSON.stringify({ type: "frame", frameBase64: base64Data }));
+           
         } else {
             console.warn("WebSocket not open, cannot send frame.");
             setLiveVideoError("Live assistance connection lost.");
