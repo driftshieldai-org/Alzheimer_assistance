@@ -57,6 +57,8 @@ export default function MemoryMateApp() {
   const wsRef = useRef(null); // NEW: WebSocket reference
   const captureIntervalIdRef = useRef(null); // To manage interval for sending frames
 
+  const BACKEND_API_BASE = (window.env && window.env.BACKEND_URL)
+    
   // Success modal timer logic for 'store_photos'
   useEffect(() => {
     let timer;
@@ -112,7 +114,15 @@ export default function MemoryMateApp() {
     // --- Establish WebSocket Connection ---
     // Dynamically determine WebSocket URL based on current host
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${BACKEND_URL}/api/live/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
+    let backendHost;
+    try {
+        backendHost = new URL(BACKEND_API_BASE).host;
+    } catch(e) {
+        console.error("Invalid Backend URL:", BACKEND_API_BASE);
+        return; 
+    }
+    
+    const wsUrl = `${protocol}//${backendHost}/api/live/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
 
     wsRef.current = new WebSocket(wsUrl);
 
