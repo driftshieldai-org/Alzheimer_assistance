@@ -34,7 +34,7 @@ Keep your answers concise and respond exclusively using VOICE.
     }
 
     // Now router.ws WILL work!
-    app.ws('/ws/live/process-stream', async (ws, req) => {
+    app.ws('/api/live/ws/live/process-stream', async (ws, req) => {
         //const userId = req.query.userId;
         const token = req.query.token;
         //if (!userId) {
@@ -144,8 +144,10 @@ Keep your answers concise and respond exclusively using VOICE.
 
             geminiWs.on('message', (data) => {
                 const response = JSON.parse(data);
+                let generatedText = '';
+                let generatedAudioBase64 = '';
                 if (response.serverContent?.modelTurn) {
-                    const parts = response.serverContent.modelTurn.parts;
+                    /*const parts = response.serverContent.modelTurn.parts;
                     for (const part of parts) {
                         if (part.inlineData && part.inlineData.data) {
                             ws.send(JSON.stringify({
@@ -153,7 +155,26 @@ Keep your answers concise and respond exclusively using VOICE.
                                 audioBase64: part.inlineData.data
                             }));
                         }
-                    }
+                    }*/
+                    const parts = response.serverContent.modelTurn.parts;
+                for (const part of parts) {
+                  // Assuming Gemini can send both descriptive text and audio data
+                  if (part.text) { // Direct text response part
+                    generatedText += part.text;
+                  }
+                  if (part.inlineData && part.inlineData.data) { // Audio data part
+                    generatedAudioBase64 = part.inlineData.data;
+                  }
+                }
+
+                // Send both parts back to the frontend in a single message
+                if (generatedText || generatedAudioBase64) {
+                  ws.send(JSON.stringify({
+                    type: "audioResponse", // A type for the frontend to recognize
+                    description: generatedText,
+                    audioBase64: generatedAudioBase64
+                  }));
+                }
                 }
             });
 
