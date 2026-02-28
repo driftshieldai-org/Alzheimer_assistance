@@ -69,9 +69,33 @@ Keep your answers concise and respond exclusively using VOICE.
 
       console.log(`✅ Loaded ${referencePhotos.length} reference photos.`);
 
-      // Create AI client
-      const ai = new GoogleGenAI({});
+      // Create AI client token
+      const client = new GoogleGenAI({});
+      const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      
+      const token = await ai.authTokens.create({
+          config: {
+              uses: 1, // The default
+              expireTime: expireTime,
+              liveConnectConstraints: {
+                  model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+                  config: {
+                      sessionResumption: {},
+                      temperature: 0.7,
+                      responseModalities: ['AUDIO']
+                  }
+              },
+              httpOptions: {
+                  apiVersion: 'v1alpha'
+              }
+          }
+      });    
 
+      
+      const ai = new GoogleGenAI({
+                      apiKey: token.name
+                    });
+      
       // Connect to Gemini Live API
       const session = await ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
