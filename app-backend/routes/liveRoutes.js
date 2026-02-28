@@ -90,7 +90,7 @@ Keep your answers concise and respond exclusively using VOICE.
             //const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
 
             const auth = new GoogleAuth({
-                scopes: ["https://www.googleapis.com/auth/cloud-platform","https://www.googleapis.com/auth/assistant-sdk-prototype","https://www.googleapis.com/auth/ai.generativelanguage"],
+                scopes: ["https://www.googleapis.com/auth/assistant-sdk-prototype"],
               });
             const client = await auth.getClient();
             const token = await client.getAccessToken();
