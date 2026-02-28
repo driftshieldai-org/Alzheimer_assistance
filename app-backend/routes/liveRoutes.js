@@ -73,7 +73,7 @@ Keep your answers concise and respond exclusively using VOICE.
       const client = new GoogleGenAI({});
       const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       
-      const token = await ai.authTokens.create({
+      const token = await client.authTokens.create({
           config: {
               uses: 1, // The default
               expireTime: expireTime,
