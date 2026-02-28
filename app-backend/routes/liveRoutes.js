@@ -102,7 +102,7 @@ Keep your answers concise and respond exclusively using VOICE.
             // Fixed missing backticks around the URL string
             //const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
             const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`;
-            
+            console.log("token used ${token.token}");
             const geminiWs = new WebSocket(geminiWsUrl,{
                                             headers: {
                                               Authorization: `Bearer ${token.token}`,
