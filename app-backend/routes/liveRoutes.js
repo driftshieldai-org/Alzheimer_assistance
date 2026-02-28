@@ -117,7 +117,7 @@ Keep your answers concise and respond exclusively using VOICE.
 
                 geminiWs.send(JSON.stringify({
                     setup: {
-                        model: "models/gemini-2.0-flash",
+                        model: "models/gemini-2.5-flash-live-preview",
                         systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
                         generationConfig: {
                             responseModalities: ["AUDIO"],
