@@ -22,11 +22,20 @@ export default function (app) {
     //const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     const GEMINI_API_KEY = "AQ.Ab8RN6KgmxUrnSuRdCeaaDMZmIf7oxSiW_UI-4S5n1Fp1BX3qg"
 
-    const auth = new GoogleAuth({
-  scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-});
-    const client = await auth.getClient();
-     const token = await client.getAccessToken();
+
+    async function init() {
+          const auth = new GoogleAuth({
+            scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+          });
+        
+          const client = await auth.getClient();
+          const token = await client.getAccessToken();
+          console.log("Auth ready");
+    }
+
+    init();
+    
+    
     
     const SYSTEM_INSTRUCTION = `
 You are a polite, helpful AI assistant with a soft, calming tone.
