@@ -83,7 +83,8 @@ Keep your answers concise and respond exclusively using VOICE.
             console.log("⏳ 5. Connecting to Gemini Live API...");
       
             // Fixed missing backticks around the URL string
-            const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
+            //const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
+            const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
             const geminiWs = new WebSocket(geminiWsUrl);
 
             // --- NEW: GEMINI ERROR AND CLOSE HANDLERS ---
