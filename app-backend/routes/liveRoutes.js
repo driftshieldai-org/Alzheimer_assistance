@@ -70,7 +70,11 @@ Keep your answers concise and respond exclusively using VOICE.
       console.log(`✅ Loaded ${referencePhotos.length} reference photos.`);
 
       // Create AI client token
-      const client = new GoogleGenAI({});
+      const client = new GoogleGenAI({
+                  vertexai: true,
+                  project: "aipartnercatalyst-confluent-01",
+                  location: "us-central1",
+                });
       const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       
       const token = await client.authTokens.create({
