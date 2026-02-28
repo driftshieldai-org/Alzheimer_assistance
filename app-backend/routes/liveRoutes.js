@@ -18,7 +18,8 @@ export default function (app) {
     }
     const bucket = storage.bucket(bucketName);
     
-    const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    //const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+    const GEMINI_API_KEY = "AQ.Ab8RN6KgmxUrnSuRdCeaaDMZmIf7oxSiW_UI-4S5n1Fp1BX3qg"
     const SYSTEM_INSTRUCTION = `
 You are a polite, helpful AI assistant with a soft, calming tone.
 You will be provided with reference photos of a user and their descriptions. 
