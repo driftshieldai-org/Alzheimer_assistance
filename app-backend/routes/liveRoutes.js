@@ -11,6 +11,10 @@ export default function (app) {
     
     const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
     const storage = new Storage({ projectId: process.env.GCP_PROJECT_ID });
+    const auth = new GoogleAuth({
+            scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+          });
+        
     
     const bucketName = process.env.GCS_BUCKET_NAME;
     if (!bucketName) {
@@ -22,21 +26,6 @@ export default function (app) {
     //const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     const GEMINI_API_KEY = "AQ.Ab8RN6KgmxUrnSuRdCeaaDMZmIf7oxSiW_UI-4S5n1Fp1BX3qg"
 
-    let token = null
-    async function init() {
-          const auth = new GoogleAuth({
-            scopes: ["https://www.googleapis.com/auth/cloud-platform"],
-          });
-        
-          const client = await auth.getClient();
-          token = await client.getAccessToken();
-          console.log("Auth ready");
-          console.log(`${token}`)
-          console.log(`${token.token}`)
-    }
-
-    init();
-    
     
     
     const SYSTEM_INSTRUCTION = `
@@ -103,6 +92,10 @@ Keep your answers concise and respond exclusively using VOICE.
       
             // Fixed missing backticks around the URL string
             //const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
+
+        
+            const client = await auth.getClient();
+            const token = await client.getAccessToken();
             const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`;
             console.log(`token used ${token.token}`);
             const geminiWs = new WebSocket(geminiWsUrl,{
