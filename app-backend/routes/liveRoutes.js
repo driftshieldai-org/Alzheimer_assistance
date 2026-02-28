@@ -91,6 +91,7 @@ Keep your answers concise and respond exclusively using VOICE.
           }
       });    
 
+      console.log(`✅ Token received: ${token.name}`);
       
       const ai = new GoogleGenAI({
                       apiKey: token.name
