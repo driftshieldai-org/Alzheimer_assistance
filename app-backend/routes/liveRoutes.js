@@ -31,6 +31,8 @@ export default function (app) {
           const client = await auth.getClient();
           token = await client.getAccessToken();
           console.log("Auth ready");
+          console.log(`${token}`)
+          console.log(`${token.token}`)
     }
 
     init();
