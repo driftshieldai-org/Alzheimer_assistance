@@ -103,12 +103,13 @@ Keep your answers concise and respond exclusively using VOICE.
             //const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
             const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`;
             
-            const geminiWs = new WebSocket(geminiWsUrl,{
-                                            headers: {
-                                              Authorization: `Bearer ${token.token}`,
-                                            },
-                                          });
+            //const geminiWs = new WebSocket(geminiWsUrl,{
+             //                               headers: {
+               //                               Authorization: `Bearer ${token.token}`,
+                 //                           },
+                   //                       });
 
+            const geminiWs = new WebSocket(geminiWsUrl)
             // --- NEW: GEMINI ERROR AND CLOSE HANDLERS ---
               geminiWs.on('error', (err) => {
                 console.error("❌ GEMINI WEBSOCKET ERROR:", err.message || err);
