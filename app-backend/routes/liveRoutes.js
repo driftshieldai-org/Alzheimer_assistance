@@ -70,35 +70,41 @@ Keep your answers concise and respond exclusively using VOICE.
       console.log(`✅ Loaded ${referencePhotos.length} reference photos.`);
 
       // Create AI client token
-      const client = new GoogleGenAI({
+      //const client = new GoogleGenAI({
+      //            vertexai: true,
+       //           project: "aipartnercatalyst-confluent-01",
+       //           location: "us-central1",
+       //         });
+      //const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      
+      //const token = await client.authTokens.create({
+      //    config: {
+      //        uses: 1, // The default
+      //        expireTime: expireTime,
+      //        liveConnectConstraints: {
+      //            model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+      //            config: {
+      //                sessionResumption: {},
+      //                temperature: 0.7,
+      //                responseModalities: ['AUDIO']
+      //            }
+       //       },
+      //        httpOptions: {
+      //            apiVersion: 'v1alpha'
+      //        }
+      //    }
+     // });    
+
+      //console.log(`✅ Token received: ${token.name}`);
+      
+      //const ai = new GoogleGenAI({
+      //                apiKey: token.name
+      //              });
+
+      const ai = new GoogleGenAI({
                   vertexai: true,
                   project: "aipartnercatalyst-confluent-01",
                   location: "us-central1",
-                });
-      const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-      
-      const token = await client.authTokens.create({
-          config: {
-              uses: 1, // The default
-              expireTime: expireTime,
-              liveConnectConstraints: {
-                  model: 'gemini-2.5-flash-native-audio-preview-12-2025',
-                  config: {
-                      sessionResumption: {},
-                      temperature: 0.7,
-                      responseModalities: ['AUDIO']
-                  }
-              },
-              httpOptions: {
-                  apiVersion: 'v1alpha'
-              }
-          }
-      });    
-
-      console.log(`✅ Token received: ${token.name}`);
-      
-      const ai = new GoogleGenAI({
-                      apiKey: token.name
                     });
       
       // Connect to Gemini Live API
