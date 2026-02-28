@@ -22,14 +22,14 @@ export default function (app) {
     //const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     const GEMINI_API_KEY = "AQ.Ab8RN6KgmxUrnSuRdCeaaDMZmIf7oxSiW_UI-4S5n1Fp1BX3qg"
 
-
+    let token = null
     async function init() {
           const auth = new GoogleAuth({
             scopes: ["https://www.googleapis.com/auth/cloud-platform"],
           });
         
           const client = await auth.getClient();
-          const token = await client.getAccessToken();
+          token = await client.getAccessToken();
           console.log("Auth ready");
     }
 
@@ -103,13 +103,12 @@ Keep your answers concise and respond exclusively using VOICE.
             //const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
             const geminiWsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`;
             
-            //const geminiWs = new WebSocket(geminiWsUrl,{
-             //                               headers: {
-               //                               Authorization: `Bearer ${token.token}`,
-                 //                           },
-                   //                       });
+            const geminiWs = new WebSocket(geminiWsUrl,{
+                                            headers: {
+                                              Authorization: `Bearer ${token.token}`,
+                                            },
+                                          });
 
-            const geminiWs = new WebSocket(geminiWsUrl)
             // --- NEW: GEMINI ERROR AND CLOSE HANDLERS ---
               geminiWs.on('error', (err) => {
                 console.error("❌ GEMINI WEBSOCKET ERROR:", err.message || err);
