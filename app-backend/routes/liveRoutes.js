@@ -99,13 +99,13 @@ Keep responses concise.
       console.log(`location: ${location}`);
       
 
-      const geminiWsUrl =
-        `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent?alt=ws`;
-
+//      const geminiWsUrl =
+  //      `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent?alt=ws`;
+      const geminiWsUrl =  `wss://${location}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/us-central1/publishers/google/models/${MODEL_ID}:streamGenerateContent`
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          "x-goog-user-project": projectId
+          "Content-Type": application/json
         }
       });
 
@@ -117,7 +117,6 @@ Keep responses concise.
         // ---------------------------
         geminiWs.send(JSON.stringify({
           setup: {
-            model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.0-flash`,
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
