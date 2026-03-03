@@ -119,10 +119,15 @@ Keep responses concise.
       console.log("🟢 Connected to Gemini Live API");
      },
      onmessage: (message) => {
-      const response = message.serverContent ? message : JSON.parse(message.data);
-
-      if (response.serverContent?.modelTurn?.parts) {
-       for (const part of response.serverContent.modelTurn.parts) {
+      if (message.setupComplete) {
+       console.log("✅ Gemini Live API Setup Complete!");
+       return;
+      }
+      
+if (message.serverContent?.modelTurn?.parts) {
+       for (const part of message.serverContent.modelTurn.parts) {
+        
+        // Forward Audio back to your client
         if (part.inlineData?.data) {
          if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
@@ -131,12 +136,14 @@ Keep responses concise.
           }));
          }
         }
+        
+        // (Optional) Log spoken text transcripts to your Cloud Run console
         if (part.text) {
-         console.log("Model text:", part.text);
+         console.log("Model spoke:", part.text);
         }
        }
       }
-     },
+    },
      onerror: (err) => {
       console.error("Gemini Live API Error:", err);
      },
