@@ -91,10 +91,14 @@ Keep responses concise.
    // 2. INITIALIZE GOOGLE GEN AI SDK 
    // ---------------------------
    // Passing 'vertexai' automatically retrieves standard GCP credentials (ADC)
+   //const ai = new GoogleGenAI({
+   // vertexai: { project: projectId, location: location }
+   //});
    const ai = new GoogleGenAI({
-    vertexai: { project: projectId, location: location }
-   });
-
+    vertexai: true,          // Tell the SDK to use Vertex AI
+    project: projectId,      // Top-level property
+    location: location       // Top-level property
+  });
 // ---------------------------
    // 3. CONNECT TO GEMINI LIVE API
    // ---------------------------
