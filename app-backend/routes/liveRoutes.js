@@ -117,7 +117,7 @@ Keep responses concise.
         // ---------------------------
         geminiWs.send(JSON.stringify({
           setup: {
-            model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.5-flash-live-preview`,
+            model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.0-flash`,
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
