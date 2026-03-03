@@ -99,6 +99,13 @@ Keep responses concise.
     project: projectId,      // Top-level property
     location: location       // Top-level property
   });
+   
+
+   let resolveSetupComplete;
+   const waitForSetup = new Promise((resolve) => {
+    resolveSetupComplete = resolve;
+   });
+   
 // ---------------------------
    // 3. CONNECT TO GEMINI LIVE API
    // ---------------------------
@@ -156,6 +163,7 @@ if (message.serverContent?.modelTurn?.parts) {
     }
    });
 
+   await waitForSetup;
  // ---------------------------
   // SEND REFERENCE PHOTOS
   // ---------------------------
@@ -164,12 +172,12 @@ if (message.serverContent?.modelTurn?.parts) {
     
     // 1. Initialize the parts array with an introductory text
     const parts = [
-      { text: "Here are some reference photos of the user. Pay close attention to their appearance:" }
+     { text: "Here are reference photos of the user. Pay close attention to their appearance. I am now starting the live video stream. Please greet me!" }
     ];
     
     // 2. Add all descriptions and inlineData images into the same parts array
     referencePhotos.forEach(photo => {
-      parts.push({ text: `Reference person: ${photo.description}` });
+      parts.push({ text: `Reference description: ${photo.description}` });
       parts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
     });
 
