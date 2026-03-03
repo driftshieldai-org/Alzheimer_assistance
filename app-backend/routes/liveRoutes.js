@@ -128,6 +128,7 @@ Keep responses concise.
      onmessage: (message) => {
       if (message.setupComplete) {
        console.log("✅ Gemini Live API Setup Complete!");
+       resolveSetupComplete(); 
        return;
       }
       
