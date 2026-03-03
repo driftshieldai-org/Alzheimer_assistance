@@ -5,6 +5,7 @@ import { Storage } from '@google-cloud/storage';
 import jwt from 'jsonwebtoken';
 // 1. Import the official Gen AI SDK
 import { GoogleGenAI } from '@google/genai'; 
+import { GoogleAuth } from 'google-auth-library';
 
 export default function (app) {
 
