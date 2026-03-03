@@ -94,17 +94,16 @@ Keep responses concise.
     vertexai: { project: projectId, location: location }
    });
 
-   // ---------------------------
+// ---------------------------
    // 3. CONNECT TO GEMINI LIVE API
    // ---------------------------
    const session = await ai.live.connect({
     model: model,
     config: {
-     generationConfig: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-       voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
-      }
+     // NOTE: generationConfig is removed. Place fields directly on config.
+     responseModalities: ["AUDIO"],
+     speechConfig: {
+      voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
      },
      systemInstruction: {
       parts: [{ text: SYSTEM_INSTRUCTION }]
@@ -113,17 +112,12 @@ Keep responses concise.
     callbacks: {
      onopen: () => {
       console.log("🟢 Connected to Gemini Live API");
-
      },
      onmessage: (message) => {
-      // ---------------------------
-      // HANDLE GEMINI RESPONSES
-      // ---------------------------
-      // 'message' is already a parsed JSON object [1, 2]
-      if (message.serverContent?.modelTurn?.parts) {
-       for (const part of message.serverContent.modelTurn.parts) {
+      const response = message.serverContent ? message : JSON.parse(message.data);
 
-        // Forward Audio to client
+      if (response.serverContent?.modelTurn?.parts) {
+       for (const part of response.serverContent.modelTurn.parts) {
         if (part.inlineData?.data) {
          if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
@@ -132,8 +126,6 @@ Keep responses concise.
           }));
          }
         }
-
-        // Output optional text transcripts to console
         if (part.text) {
          console.log("Model text:", part.text);
         }
@@ -152,25 +144,23 @@ Keep responses concise.
     }
    });
 
-      // ---------------------------
-      // SEND REFERENCE PHOTOS ONCE CONNECTED
-      // ---------------------------
-      referencePhotos.forEach(photo => {
-       // SDK maps these perfectly to the internal WebSocket payload
-       session.send({
-        clientContent: {
-         turns: [{
-          role: "user",
-          parts: [
-           { text: `Reference person: ${photo.description}` },
-           { inlineData: { mimeType: photo.mimeType, data: photo.data } }
-          ]
-         }],
-         turnComplete: true
-        }
-       });
-      });
-   
+   // ---------------------------
+   // SEND REFERENCE PHOTOS
+   // ---------------------------
+   referencePhotos.forEach(photo => {
+    // Use sendClientContent instead of session.send
+    session.sendClientContent({
+     turns: [{
+      role: "user",
+      parts: [
+       { text: `Reference person: ${photo.description}` },
+       { inlineData: { mimeType: photo.mimeType, data: photo.data } }
+      ]
+     }],
+     turnComplete: true
+    });
+   });
+
    // ---------------------------
    // STREAM VIDEO FRAMES
    // ---------------------------
@@ -178,15 +168,11 @@ Keep responses concise.
     const data = JSON.parse(msg);
 
     if (data.type === "frame") {
-     // Stream the continuous base64 media chunk directly using session.send()
-     session.send({
-      realtimeInput: {
-       mediaChunks: [{
-        mimeType: "image/jpeg",
-        data: data.frameBase64
-       }]
-      }
-     });
+     // Use sendRealtimeInput instead of session.send
+     session.sendRealtimeInput([{
+      mimeType: "image/jpeg",
+      data: data.frameBase64
+     }]);
     }
    });
 
