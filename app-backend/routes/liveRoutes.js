@@ -104,7 +104,8 @@ Keep responses concise.
 
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${accessToken}`,
+          "x-goog-user-project": projectId
         }
       });
 
@@ -115,8 +116,8 @@ Keep responses concise.
         // SETUP MESSAGE (Required First Message)
         // ---------------------------
         geminiWs.send(JSON.stringify({
-          model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.5-flash-live-preview`,
           setup: {
+            model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.5-flash-live-preview`,
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
