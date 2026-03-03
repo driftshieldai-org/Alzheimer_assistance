@@ -74,11 +74,7 @@ resource "google_cloud_run_v2_service" "backend" {
           name  = "GCP_PROJECT_ID"
           value = var.project_id
         }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = "test"
-        }
-
+        
     resources {
         limits = {
           cpu    = 1
