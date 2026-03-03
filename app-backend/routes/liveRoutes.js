@@ -91,6 +91,7 @@ Keep responses concise.
       const accessTokenResponse = await client.getAccessToken();
       const accessToken = accessTokenResponse.token;
 
+      const model = "gemini-2.5-flash-live-preview";
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_REGION || "us-central1";
 
@@ -116,7 +117,6 @@ Keep responses concise.
         // ---------------------------
         geminiWs.send(JSON.stringify({
           setup: {
-            model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.5-flash-live-preview`,
             generationConfig: {
               responseModalities: ["AUDIO"],
               speechConfig: {
