@@ -83,7 +83,7 @@ Keep responses concise.
 
    const projectId = process.env.GCP_PROJECT_ID;
    const location = process.env.GCP_REGION || "us-central1";
-   const model = "gemini-2.5-flash-live-preview"; // Hackathon standard is usually gemini-2.0-flash-exp
+   const model = "gemini-2.0-flash-exp"; // "gemini-live-2.5-flash-preview" //"gemini-2.5-flash-live-preview"; // Hackathon standard is usually gemini-2.0-flash-exp
 
   console.log(`projectid: ${projectId} location: ${location}`);
    // ---------------------------
@@ -136,7 +136,7 @@ Keep responses concise.
       console.error("Gemini Live API Error:", err);
      },
      onclose: (e) => {
-      console.log("🔴 Gemini WS Closed.");
+      console.log("🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`");
       if (ws.readyState === WebSocket.OPEN) {
        ws.close();
       }
@@ -144,23 +144,38 @@ Keep responses concise.
     }
    });
 
-   // ---------------------------
-   // SEND REFERENCE PHOTOS
-   // ---------------------------
-   referencePhotos.forEach(photo => {
-    // Use sendClientContent instead of session.send
-    session.sendClientContent({
-     turns: [{
-      role: "user",
-      parts: [
-       { text: `Reference person: ${photo.description}` },
-       { inlineData: { mimeType: photo.mimeType, data: photo.data } }
-      ]
-     }],
-     turnComplete: true
+ // ---------------------------
+  // SEND REFERENCE PHOTOS
+  // ---------------------------
+  if (referencePhotos.length > 0) {
+    console.log("Sending reference photos to Gemini...");
+    
+    // 1. Initialize the parts array with an introductory text
+    const parts = [
+      { text: "Here are some reference photos of the user. Pay close attention to their appearance:" }
+    ];
+    
+    // 2. Add all descriptions and inlineData images into the same parts array
+    referencePhotos.forEach(photo => {
+      parts.push({ text: `Reference person: ${photo.description}` });
+      parts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
     });
-   });
 
+    // 3. Send them all at once in a SINGLE turn
+    session.sendClientContent({
+      turns: [{
+        role: "user",
+        parts: parts
+      }],
+      turnComplete: true // Signals the end of our initial context turn
+    });
+  } else {
+    // If there are no photos, we just start the session quietly
+    session.sendClientContent({
+      turns: [{ role: "user", parts: [{ text: "Hello, I am ready." }] }],
+      turnComplete: true
+    });
+  }
    // ---------------------------
    // STREAM VIDEO FRAMES
    // ---------------------------
