@@ -114,24 +114,6 @@ Keep responses concise.
      onopen: () => {
       console.log("🟢 Connected to Gemini Live API");
 
-      // ---------------------------
-      // SEND REFERENCE PHOTOS ONCE CONNECTED
-      // ---------------------------
-      referencePhotos.forEach(photo => {
-       // SDK maps these perfectly to the internal WebSocket payload
-       session.send({
-        clientContent: {
-         turns: [{
-          role: "user",
-          parts: [
-           { text: `Reference person: ${photo.description}` },
-           { inlineData: { mimeType: photo.mimeType, data: photo.data } }
-          ]
-         }],
-         turnComplete: true
-        }
-       });
-      });
      },
      onmessage: (message) => {
       // ---------------------------
@@ -170,6 +152,25 @@ Keep responses concise.
     }
    });
 
+      // ---------------------------
+      // SEND REFERENCE PHOTOS ONCE CONNECTED
+      // ---------------------------
+      referencePhotos.forEach(photo => {
+       // SDK maps these perfectly to the internal WebSocket payload
+       session.send({
+        clientContent: {
+         turns: [{
+          role: "user",
+          parts: [
+           { text: `Reference person: ${photo.description}` },
+           { inlineData: { mimeType: photo.mimeType, data: photo.data } }
+          ]
+         }],
+         turnComplete: true
+        }
+       });
+      });
+   
    // ---------------------------
    // STREAM VIDEO FRAMES
    // ---------------------------
