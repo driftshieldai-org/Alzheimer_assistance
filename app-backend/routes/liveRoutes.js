@@ -100,12 +100,11 @@ Keep responses concise.
       
 
       const geminiWsUrl =
-        `wss://${location}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:streamGenerateContent?alt=ws`;
+        `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent?alt=ws`;
 
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json"
+          Authorization: `Bearer ${accessToken}`
         }
       });
 
@@ -116,6 +115,7 @@ Keep responses concise.
         // SETUP MESSAGE (Required First Message)
         // ---------------------------
         geminiWs.send(JSON.stringify({
+          model: `projects/${projectId}/locations/${location}/publishers/google/models/gemini-2.5-flash-live-preview`,
           setup: {
             generationConfig: {
               responseModalities: ["AUDIO"],
