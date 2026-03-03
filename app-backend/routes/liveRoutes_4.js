@@ -105,7 +105,7 @@ Keep responses concise.
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          "Content-Type": application/json
+          "Content-Type": "application/json"
         }
       });
 
