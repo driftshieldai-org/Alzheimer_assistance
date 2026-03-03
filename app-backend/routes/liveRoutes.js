@@ -94,8 +94,12 @@ Keep responses concise.
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_REGION || "us-central1";
 
+      console.log(`projectid: ${projectId}`);
+      console.log(`location: ${location}`);
+      
+
       const geminiWsUrl =
-        `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent`;
+        `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent?alt=ws`;
 
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
