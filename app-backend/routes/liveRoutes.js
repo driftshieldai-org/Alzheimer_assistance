@@ -84,7 +84,7 @@ Keep responses concise.
 
    const projectId = process.env.GCP_PROJECT_ID;
    const location = process.env.GCP_REGION || "us-central1";
-   const model = "gemini-2.0-flash"; // "gemini-live-2.5-flash-preview" //"gemini-2.5-flash-live-preview"; // Hackathon standard is usually gemini-2.0-flash-exp
+   const model = "gemini-2.0-flash-001"; // "gemini-live-2.5-flash-preview" //"gemini-2.5-flash-live-preview"; // Hackathon standard is usually gemini-2.0-flash-exp
 
   console.log(`projectid: ${projectId} location: ${location}`);
    // ---------------------------
