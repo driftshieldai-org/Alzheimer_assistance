@@ -136,7 +136,7 @@ Keep responses concise.
       console.error("Gemini Live API Error:", err);
      },
      onclose: (e) => {
-      console.log("🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`");
+      console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`);
       if (ws.readyState === WebSocket.OPEN) {
        ws.close();
       }
@@ -169,6 +169,7 @@ Keep responses concise.
       }],
       turnComplete: true // Signals the end of our initial context turn
     });
+   console.log("✅ Reference photos sent successfully.");
   } else {
     // If there are no photos, we just start the session quietly
     session.sendClientContent({
