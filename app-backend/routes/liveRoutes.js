@@ -99,12 +99,12 @@ Keep responses concise.
       
 
       const geminiWsUrl =
-        `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent?alt=ws`;
+        `wss://${location}-aiplatform.googleapis.com/v1beta1/projects/${projectId}/locations/${location}/publishers/google/models/${model}:streamGenerateContent?alt=ws`;
 
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          "x-goog-user-project": projectId
+          "Content-Type": "application/json"
         }
       });
 
