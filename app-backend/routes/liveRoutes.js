@@ -91,7 +91,7 @@ Keep responses concise.
       const accessTokenResponse = await client.getAccessToken();
       const accessToken = accessTokenResponse.token;
 
-      const model = "gemini-2.5-flash-live-preview";
+      const model = "gemini-2.0-flash";
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_REGION || "us-central1";
 
@@ -101,7 +101,7 @@ Keep responses concise.
 
 //      const geminiWsUrl =
   //      `wss://${location}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1beta1.PredictionService/BidiGenerateContent?alt=ws`;
-      const geminiWsUrl =  `wss://${location}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/us-central1/publishers/google/models/${MODEL_ID}:streamGenerateContent`
+      const geminiWsUrl =  `wss://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/us-central1/publishers/google/models/${model}:streamGenerateContent`
       const geminiWs = new WebSocket(geminiWsUrl, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
