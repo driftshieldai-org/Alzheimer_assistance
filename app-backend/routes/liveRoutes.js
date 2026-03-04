@@ -101,8 +101,14 @@ export default function (app) {
 
       // Forward audio back to frontend
       if (message.serverContent?.modelTurn?.parts) {
+       if (part.text) {
+        console.log("🧠 Model text:", part.text);
+       }
+       
        for (const part of message.serverContent.modelTurn.parts) {
         if (part.inlineData?.data && ws.readyState === WebSocket.OPEN) {
+         const mimeType = part.inlineData.mimeType || "audio/pcm;rate=24000";
+         console.log("🔊 Model audio mimeType:", mimeType);
          ws.send(JSON.stringify({ type: "audio", audioBase64: part.inlineData.data }));
         }
        }
@@ -164,6 +170,24 @@ export default function (app) {
             data: data.audioBase64
           }]);
         }
+
+        // ---- Speech Start (Interrupt AI) ----
+       else if (data.type === "speech_start") {
+         console.log("🔴 User interruption detected");
+     
+         session.sendClientContent({
+           turnComplete: false
+         });
+       }
+     
+       // ---- End of Turn ----
+       else if (data.type === "end_of_turn") {
+         console.log("🟢 Sending turnComplete to Gemini");
+     
+         session.sendClientContent({
+           turnComplete: true
+         });
+       }
       });
 
       ws.on('close', () => {
