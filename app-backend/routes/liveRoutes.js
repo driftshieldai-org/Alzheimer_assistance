@@ -126,6 +126,8 @@ Keep responses concise.
       console.log("🟢 Connected to Gemini Live API");
      },
      onmessage: (message) => {
+      console.log("📥 Received from Gemini:", Object.keys(message), message.serverContent ? Object.keys(message.serverContent) : "");
+
       if (message.setupComplete) {
        console.log("✅ Gemini Live API Setup Complete!");
        resolveSetupComplete(); 
@@ -150,6 +152,10 @@ if (message.serverContent?.modelTurn?.parts) {
          console.log("Model spoke:", part.text);
         }
        }
+      }
+      // Check if the AI finished its turn
+      if (message.serverContent?.turnComplete) {
+       console.log("🏁 AI finished speaking.");
       }
     },
      onerror: (err) => {
