@@ -818,7 +818,8 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 6. UNDERSTAND THE PLACE LIVE SCREEN (UPDATED for WebSockets)  const renderLiveView = () => (
+  // 6. UNDERSTAND THE PLACE LIVE SCREEN (UPDATED for WebSockets)  
+  const renderLiveView = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 bg-slate-100 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Live Assistance</h2>
       
