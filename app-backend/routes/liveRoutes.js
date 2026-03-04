@@ -110,40 +110,65 @@ export default function (app) {
 
    await waitForSetup;
 
-   // FIX: Explicitly tell Gemini these are reference photos, NOT the current camera view.
-   const initialParts = [
-    { text: `System Note: I am providing you with reference photos of my past memories. Do NOT analyze these as my current surroundings right now. Just store them in your context. Acknowledge me by my name (${userName}) and say you are ready, then wait for the live video stream and my voice.` }
-   ];
-   
-   referencePhotos.forEach(photo => {
-    initialParts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
-    initialParts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
-   });
+      // 4. Send Photos + Dates as Context
+      if (referencePhotos.length > 0) {
+        console.log("Sending reference photos to Gemini...");
+        
+        const parts = [
+          { text: `System Note: I am providing you with reference photos of my past memories. Do NOT analyze these as my current surroundings right now. Just store them in your context. Acknowledge me by my name (${userName}) and say you are ready, then wait for the live video stream and my voice.` }
+        ];
+        
+        referencePhotos.forEach(photo => {
+          parts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
+          parts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
+        });
 
-   session.send({
-    clientContent: {
-     turns: [{ role: "user", parts: initialParts }],
-     turnComplete: true 
+        session.sendClientContent({
+          turns: [{
+            role: "user",
+            parts: parts
+          }],
+          turnComplete: true 
+        });
+        console.log("✅ Reference photos sent successfully.");
+      } else {
+        session.sendClientContent({
+          turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
+          turnComplete: true
+        });
+      }
+
+      // 5. Forward BOTH Real-time Video Frames and Real-time Microphone Audio
+      ws.on('message', (msg) => {
+        const data = JSON.parse(msg);
+
+        // Forward Video frame
+        if (data.type === "frame") {
+          session.sendRealtimeInput([{
+            mimeType: "image/jpeg",
+            data: data.frameBase64
+          }]);
+        } 
+        
+        // Forward User's Microphone Audio chunks
+        else if (data.type === "audio") {
+          session.sendRealtimeInput([{
+            mimeType: "audio/pcm;rate=16000",
+            data: data.audioBase64
+          }]);
+        }
+      });
+
+      ws.on('close', () => {
+        console.log("Client WS closed connection.");
+      });
+
+    } catch (error) {
+      console.error("Live Stream Error:", error);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1011, "Server error");
+      }
     }
-   });
 
-    console.log("✅ Reference photos sent successfully.");
-   // Forward BOTH Real-time Video Frames and Microphone Audio using standard realtimeInput schema
-   ws.on('message', (msg) => {
-    const data = JSON.parse(msg);
-    if (data.type === "frame") {
-     session.send({
-      realtimeInput: { mediaChunks: [{ mimeType: "image/jpeg", data: data.frameBase64 }] }
-     });
-    } else if (data.type === "audio") {
-     session.send({
-      realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }] }
-     });
-    }
-   });
-
-  } catch (error) {
-   console.error("Live Stream Error:", error);
-  }
  });
 }
