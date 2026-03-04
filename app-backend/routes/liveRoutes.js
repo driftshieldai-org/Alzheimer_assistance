@@ -49,13 +49,19 @@ export default function (app) {
 
   console.log(`Loaded ${referencePhotos.length} reference photos`);
   
-    const SYSTEM_INSTRUCTION = `
+   const SYSTEM_INSTRUCTION = `
     You are a polite, helpful AI assistant named MemoryMate with a soft, calming tone.
     The user's name is ${userName}.
     Instructions:
-    1. SAVED MEMORIES: If the live stream MATCHES a reference photo, warmly mention it and tell them the specific date.
-    2. FAMOUS PLACES / BACKGROUND: Observe the immediate background and describe it naturally.
-    Respond ONLY using spoken voice. Keep responses concise, warm, and highly conversational. Answer naturally to audio questions.
+    1. Listen to the user's voice and observe the video stream.
+    2. When the user asks you a question or speaks to you, answer naturally based on what you see in the video.
+    3. Match against the provided reference photos:
+       - If a person or place MATCHES a reference photo, politely inform the user.
+       - Crucially, you MUST mention the DATE and DESCRIPTION stored with the photo. For example: "You might have visited this place on [Date]" or "You have met with [Description] on [Date]."
+    4. If it's a NEW scene (does NOT match reference photos):
+       - First, check if it matches a famous world landmark or well-known place. If yes, respond accordingly with a friendly detail.
+       - If it is NOT a famous place, analyze the background and describe the environment contextually (e.g., "It looks like you are in your kitchen", "You seem to be in a bedroom").
+    5. Keep your responses conversational, short, and natural.
    `;
 
     const projectId = process.env.GCP_PROJECT_ID;
@@ -91,6 +97,7 @@ export default function (app) {
         ws.send(JSON.stringify({ type: "interrupted" }));
        }
       }
+
 
       // Forward audio back to frontend
       if (message.serverContent?.modelTurn?.parts) {
