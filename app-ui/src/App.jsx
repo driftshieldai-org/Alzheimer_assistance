@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-let nextPlayTime = 0; // Tracks when the next chunk should play
+let nextPlayTime = 0; // Tracks when the next
+ chunk should play
 
 async function playPcmAudio(base64Data) {
   try {
@@ -90,9 +91,9 @@ export default function MemoryMateApp() {
   const [aiTextResponse, setAiTextResponse] = useState(''); 
   const audioPlayerRef = useRef(null); 
   const wsRef = useRef(null); 
-  const captureIntervalIdRef = useRef(null);
-
-  // Audio capture references
+  
+  // Real-time video/audio controls
+  const isCapturingRef = useRef(false);
   const micStreamRef = useRef(null);
   const audioCaptureContextRef = useRef(null);
   const audioProcessorRef = useRef(null);
@@ -125,6 +126,17 @@ export default function MemoryMateApp() {
     return () => stopLiveAssistance();
   }, [currentScreen]);
 
+  // Recursive loop for REAL-TIME video processing (~4 FPS)
+  const captureFrameLoop = async () => {
+    if (!isCapturingRef.current) return;
+    
+    await sendLiveFrame();
+    
+    // 250ms = 4 frames per second. This is the optimal speed for real-time 
+    // Gemini Live video without crashing the browser or API quota.
+    setTimeout(captureFrameLoop, 250);
+  };
+
   const startLiveAssistance = async () => {
     if (audioContext.state === 'suspended') {
       audioContext.resume();
@@ -148,10 +160,12 @@ export default function MemoryMateApp() {
 
     wsRef.current.onopen = async () => {
       console.log('WebSocket connected.');
-      // 1. Start continuous video frame sending
-      captureIntervalIdRef.current = setInterval(sendLiveFrame, 1000);
+      
+      // 1. Start continuous REAL-TIME video streaming
+      isCapturingRef.current = true;
+      captureFrameLoop();
 
-      // 2. Start continuous audio streaming
+      // 2. Start continuous REAL-TIME audio streaming
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -176,6 +190,7 @@ export default function MemoryMateApp() {
         audioGainNodeRef.current = gainNode;
 
         processor.onaudioprocess = (e) => {
+          if (!isCapturingRef.current) return;
           const float32Array = e.inputBuffer.getChannelData(0);
           const int16Array = new Int16Array(float32Array.length);
           for (let i = 0; i < float32Array.length; i++) {
@@ -233,11 +248,9 @@ export default function MemoryMateApp() {
   };
   
   const stopLiveAssistance = () => {
-    // Stop video interval
-    if (captureIntervalIdRef.current) {
-      clearInterval(captureIntervalIdRef.current);
-      captureIntervalIdRef.current = null;
-    }
+    // Stop Video Loop
+    isCapturingRef.current = false;
+    
     // Stop WebSocket
     if (wsRef.current) {
       wsRef.current.close();
@@ -272,6 +285,7 @@ export default function MemoryMateApp() {
     setProcessingFrame(true); 
 
     try {
+      // Small resolution for faster, real-time transmission
       const imageSrc = webcamRefLive.current.getScreenshot({width: 640, height: 360}); 
       if (!imageSrc) return;
 
