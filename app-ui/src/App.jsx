@@ -15,6 +15,7 @@ import {
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 let nextPlayTime = 0; // Tracks when the next chunk should play
+let activeAudioSources = [];
 
 function clearAudioQueue() {
   activeAudioSources.forEach(source => {
@@ -140,6 +141,10 @@ export default function MemoryMateApp() {
         
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       audioContextMicRef.current = audioCtx;
+
+      if (audioCtx.state === 'suspended') {
+         await audioCtx.resume();
+       }
       
       const source = audioCtx.createMediaStreamSource(stream);
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -201,6 +206,12 @@ export default function MemoryMateApp() {
 
     wsRef.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
+
+      if (data.type === "interrupted") {
+         clearAudioQueue();
+         return;
+      }
+      
       if (data.error) {
         setLiveVideoError(`AI Message Error: ${data.error}`);
       } else {
