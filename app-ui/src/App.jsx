@@ -37,8 +37,6 @@ async function playPcmAudio(base64Data) {
     source.buffer = buffer;
     source.connect(audioContext.destination);
     
-    // ---
- THE FIX: QUEUE THE AUDIO ---
     const currentTime = audioContext.currentTime;
     
     // If the queue finished, reset the timer to right now
