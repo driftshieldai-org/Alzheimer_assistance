@@ -15,8 +15,7 @@ import {
 } from 'lucide-react';
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-let nextPlayTime = 0; // Tracks when the next
- chunk should play
+let nextPlayTime = 0; // Tracks when the next chunk should play
 
 async function playPcmAudio(base64Data) {
   try {
