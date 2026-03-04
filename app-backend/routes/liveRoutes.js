@@ -101,10 +101,7 @@ export default function (app) {
 
       // Forward audio back to frontend
       if (message.serverContent?.modelTurn?.parts) {
-       if (part.text) {
-        console.log("🧠 Model text:", part.text);
-       }
-       
+      
        for (const part of message.serverContent.modelTurn.parts) {
         if (part.inlineData?.data && ws.readyState === WebSocket.OPEN) {
          const mimeType = part.inlineData.mimeType || "audio/pcm;rate=24000";
