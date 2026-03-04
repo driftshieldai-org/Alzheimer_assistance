@@ -37,8 +37,7 @@ export default function (app) {
    for (const doc of photosSnapshot.docs) {
     const photoData = doc.data();
     if (photoData.filename) {
-     const base64Image = await get
-GcsFileAsBase64(photoData.filename);
+     const base64Image = await getGcsFileAsBase64(photoData.filename);
      referencePhotos.push({
       description: photoData.description || "No description",
       date: photoData.photoDate || "unknown date",
