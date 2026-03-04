@@ -28,6 +28,8 @@ function clearAudioQueue() {
 
 async function playPcmAudio(base64Data) {
   try {
+
+    
     const binaryString = window.atob(base64Data);
     const len = binaryString.length;
     const bytes = new Int16Array(len / 2);
