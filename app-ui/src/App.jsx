@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+let nextPlayTime = 0; // Tracks when the next chunk should play
 
 async function playPcmAudio(base64Data) {
   try {
@@ -25,15 +26,32 @@ async function playPcmAudio(base64Data) {
     for (let i = 0; i < len / 2; i++) {
         bytes[i] = binaryString.charCodeAt(i * 2) | (binaryString.charCodeAt(i * 2 + 1) << 8);
     }
+    
     const buffer = audioContext.createBuffer(1, bytes.length, 24000);
     const channelData = buffer.getChannelData(0);
     for (let i = 0; i < bytes.length; i++) {
-        channelData[i] = bytes[i] / 32768.0; // Convert Int16 to Float32
+        channelData[i] = bytes[i] / 32768.0;
     }
+    
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
-    source.start();
+    
+    // ---
+ THE FIX: QUEUE THE AUDIO ---
+    const currentTime = audioContext.currentTime;
+    
+    // If the queue finished, reset the timer to right now
+    if (nextPlayTime < currentTime) {
+      nextPlayTime = currentTime;
+    }
+    
+    // Schedule this chunk to play exactly when the last one finishes
+    source.start(nextPlayTime);
+    
+    // Advance the timer by the duration of this chunk
+    nextPlayTime += buffer.duration; 
+
   } catch (err) {
     console.error("Audio playback error:", err);
   }
@@ -124,6 +142,11 @@ export default function MemoryMateApp() {
 
   // --- NEW: Live Assistance Functions (WebSocket based) ---
   const startLiveAssistance = () => {
+
+    if (audioContext.state === 'suspended') {
+    audioContext.resume();
+    }
+    
     const token = localStorage.getItem('token');
     if (!token) {
         setLiveVideoError("Please log in to use live assistance.");
