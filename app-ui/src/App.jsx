@@ -154,7 +154,18 @@ export default function MemoryMateApp() {
     setAiAudioResponse('');
 
     // Dynamically determine WebSocket URL
-    const wsUrl = `${BACKEND_API_BASE.replace(/^http/, 'ws')}/api/live/ws/live/process-stream?token=${}`;
+    //const wsUrl = `${BACKEND_API_BASE.replace(/^http/, 'ws')}/api/live/ws/live/process-stream?token=${token}`;
+    // Dynamically determine WebSocket URL based on current host
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let backendHost;
+      try {
+        backendHost = new URL(BACKEND_API_BASE).host;
+      } catch(e) {
+        console.error("Invalid Backend URL:", BACKEND_API_BASE);
+        return; 
+      }
+       
+    const wsUrl = `${protocol}//${backendHost}/api/live/ws/live/process-stream?token=${token}`; // Pass token as query param for WS
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = async () => {
@@ -410,6 +421,8 @@ export default function MemoryMateApp() {
 
     const token = localStorage.getItem('token');
     if (!token) {
+      setPhotoUploadErrorMsg('You must be logged in to upload photos.');
+      setIsPhotoUploading(false);
       setCurrentScreen('login');
       return;
     }
@@ -422,7 +435,7 @@ export default function MemoryMateApp() {
     try {
       const response = await fetch('/api/photos/upload', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
 
@@ -468,7 +481,7 @@ export default function MemoryMateApp() {
   const renderHome = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in duration-500">
       <div className="flex flex-col items-center mb-16">
-        <Brain size={} className="text-blue-800 mb-6" />
+        <Brain size={120} className="text-blue-800 mb-6" />
         <h1 className="text-6xl font-extrabold text-blue-900 tracking-tight text-center">MemoryMate</h1>
       </div>
       <div className="w-full max-w-xl flex flex-col space-y-8">
@@ -482,16 +495,16 @@ export default function MemoryMateApp() {
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-12">Login</h2>
       <div className="w-full max-w-xl flex flex-col space-y-8">
-        {loginErrorMsg && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">{}</div>}
+        {loginErrorMsg && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">{loginErrorMsg}</div>}
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-4 block">User ID</label>
-          <input type="text" value={} onChange={(e) => setLoginUserId(e.target.value)} placeholder="Type your User ID here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+          <input type="text" value={loginUserId} onChange={(e) => setLoginUserId(e.target.value)} placeholder="Type your User ID here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
         </div>
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-4 block">Password</label>
-          <input type="password" value={} onChange={(e) => setLoginPassword(e.target.value)} placeholder="Type your password here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+          <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="Type your password here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
         </div>
-        <button onClick={} disabled={} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-8 disabled:opacity-70 transition-all">
+        <button onClick={handleLogin} disabled={isLoginLoading} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-8 disabled:opacity-70 transition-all">
           {isLoginLoading ? 'Logging In...' : 'Login'}
         </button>
         <BackButton onClick={() => setCurrentScreen('home')} />
@@ -503,24 +516,24 @@ export default function MemoryMateApp() {
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-10">Sign Up</h2>
       <div className="w-full max-w-xl flex flex-col space-y-6">
-        {signupErrorMsg && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">{}</div>}
+        {signupErrorMsg && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">{signupErrorMsg}</div>}
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Your Name</label>
-          <input type="text" value={} onChange={(e) => setName(e.target.value)} placeholder="Type your name here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+          <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your name here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
         </div>
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-3 block">User ID</label>
-          <input type="text" value={} onChange={(e) => setSignupUserId(e.target.value)} placeholder="Choose a unique User ID" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+          <input type="text" value={signupUserId} onChange={(e) => setSignupUserId(e.target.value)} placeholder="Choose a unique User ID" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
         </div>
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Password</label>
-          <input type="password" value={} onChange={(e) => setSignupPassword(e.target.value)} placeholder="Type a password here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+          <input type="password" value={signupPassword} onChange={(e) => setSignupPassword(e.target.value)} placeholder="Type a password here" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
         </div>
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Type Password Again</label>
-          <input type="password" value={} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Type your password again" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+          <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Type your password again" className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
         </div>
-        <button onClick={} disabled={} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-6 disabled:opacity-70 transition-all">
+        <button onClick={handleSignup} disabled={isSignupLoading} className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-6 disabled:opacity-70 transition-all">
           {isSignupLoading ? 'Creating Account...' : 'Sign Up'}
         </button>
         <BackButton onClick={() => setCurrentScreen('home')} />
@@ -535,11 +548,11 @@ export default function MemoryMateApp() {
       </h2>
       <div className="w-full max-w-2xl flex flex-col space-y-8 flex-grow">
         <button onClick={() => setCurrentScreen('store_photos')} className="flex-1 flex flex-col items-center justify-center bg-blue-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-blue-900 active:bg-blue-950 transition-all border-4 border-blue-900">
-          <Camera size={} className="mb-6" />
+          <Camera size={80} className="mb-6" />
           <span className="text-4xl md:text-5xl font-extrabold text-center">Store New Photos</span>
         </button>
         <button onClick={() => setCurrentScreen('live_view')} className="flex-1 flex flex-col items-center justify-center bg-teal-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-teal-900 active:bg-teal-950 transition-all border-4 border-teal-900 mb-8">
-          <Video size={} className="mb-6" />
+          <Video size={80} className="mb-6" />
           <span className="text-4xl md:text-5xl font-extrabold text-center">Understand the place live</span>
         </button>
       </div>
@@ -550,16 +563,16 @@ export default function MemoryMateApp() {
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 animate-in fade-in relative">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Store A Photo</h2>
       <div className="w-full max-w-2xl flex flex-col space-y-8">
-        {photoUploadErrorMsg && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">{}</div>}
+        {photoUploadErrorMsg && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">{photoUploadErrorMsg}</div>}
 
         {!isCameraActive && !photoFile && !capturedImageSrc && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
             <button onClick={() => fileInputRef.current.click()} className="flex flex-col items-center justify-center bg-blue-100 border-4 border-blue-300 text-blue-900 p-8 rounded-2xl shadow-md hover:bg-blue-200">
-              <Upload size={} className="mb-4" />
+              <Upload size={64} className="mb-4" />
               <span className="text-3xl font-bold">Upload from Device</span>
             </button>
             <button onClick={() => setIsCameraActive(true)} className="flex flex-col items-center justify-center bg-green-100 border-4 border-green-300 text-green-900 p-8 rounded-2xl shadow-md hover:bg-green-200">
-               <CameraIcon size={} className="mb-4 text-green-900" />
+               <CameraIcon size={64} className="mb-4 text-green-900" />
               <span className="text-3xl font-bold text-green-900">Take a Photo Now</span>
             </button>
           </div>
@@ -567,7 +580,7 @@ export default function MemoryMateApp() {
 
         {isCameraActive && !capturedImageSrc && (
          <div className="bg-slate-800 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-slate-900 shadow-2xl space-y-6">
-          <Webcam audio={} ref={} screenshotFormat="image/jpeg" videoConstraints={{facingMode: "environment"}} className="rounded-xl w-full max-w-2xl aspect-video object-cover" />
+          <Webcam audio={false} ref={webcamRefCapture} screenshotFormat="image/jpeg" videoConstraints={{facingMode: "environment"}} className="rounded-xl w-full max-w-2xl aspect-video object-cover" />
           <div className="flex w-full justify-around space-x-4">
            <button onClick={() => {
              const imageSrc = webcamRefCapture.current.getScreenshot({width: 1280, height: 720});
@@ -585,12 +598,12 @@ export default function MemoryMateApp() {
         {capturedImageSrc && (
          <div className="bg-slate-100 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-blue-500 shadow-2xl space-y-6">
           <h3 className="text-3xl font-bold text-blue-900 mt-2">Captured Photo Preview:</h3>
-          <img src={} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
+          <img src={handleRetryCameraCapture} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
           <div className="flex w-full justify-around space-x-4">
            <button onClick={() => setCapturedImageSrc(null)} className="flex-1 bg-orange-500 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-orange-600 flex items-center justify-center">
             <ArrowLeft className="mr-4" /> Retake
            </button>
-           <button onClick={} disabled={isPhotoUploading || !photoDescription || !photoDate} className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-blue-800 flex items-center justify-center disabled:opacity-70">
+           <button onClick={handlePhotoUpload} disabled={isPhotoUploading || !photoDescription || !photoDate} className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl shadow-md hover:bg-blue-800 flex items-center justify-center disabled:opacity-70">
             {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
            </button>
           </div>
@@ -599,30 +612,30 @@ export default function MemoryMateApp() {
 
         {photoFile && !isCameraActive && !capturedImageSrc && (
           <div className="bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center shadow-md">
-            <ImageIcon size={} className="text-blue-800 mb-4" />
+            <ImageIcon size={64} className="text-blue-800 mb-4" />
             <span className="text-3xl font-bold text-blue-900 text-center">{photoFile.name} (Ready to upload)</span>
             <button onClick={() => setPhotoFile(null)} className="mt-6 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600">Remove Photo</button>
           </div>
         )}
 
-        <input type="file" accept="image/*" onChange={(e) => { if(e.target.files[0]) setPhotoFile(e.target.files[0]); }} ref={} className="hidden" />
+        <input type="file" accept="image/*" onChange={(e) => { if(e.target.files[0]) setPhotoFile(e.target.files[0]); }} ref={fileInputRef} className="hidden" />
 
         {(photoFile || capturedImageSrc || (!photoFile && !capturedImageSrc && !isCameraActive)) && ( 
           <>
             <div>
               <label className="text-3xl font-bold text-blue-900 mb-4 block">Who or what is in this photo?</label>
-              <input type="text" value={} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="Type details for this picture..." className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+              <input type="text" value={photoDescription} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="Type details for this picture..." className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
             </div>
             <div>
               <label className="text-3xl font-bold text-blue-900 mb-4 block">Date of photo</label>
-              <input type="date" value={} onChange={(e) => setPhotoDate(e.target.value)} className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
+              <input type="date" value={photoDate} onChange={(e) => setPhotoDate(e.target.value)} className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none" />
             </div>
           </>
         )}
          
         {(photoFile && !capturedImageSrc) && ( 
           <div className="flex flex-col space-y-6 pt-6">
-            <button onClick={} disabled={isPhotoUploading || !photoDescription || !photoDate} className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70">
+            <button onClick={handlePhotoUpload} disabled={isPhotoUploading || !photoDescription || !photoDate} className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70">
               {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
             </button>
             <button onClick={() => setCurrentScreen('dashboard')} className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200">
@@ -635,7 +648,7 @@ export default function MemoryMateApp() {
       {showSuccess && (
         <div className="fixed inset-0 bg-blue-950/90 flex flex-col items-center justify-center z-50 p-6 animate-in fade-in" onClick={() => {setShowSuccess(false); setCurrentScreen('dashboard');}}>
          <div className="bg-white rounded-3xl p-12 max-w-2xl w-full flex flex-col items-center text-center shadow-2xl border-8 border-green-500">
-          <CheckCircle size={} className="text-green-600 mb-8" />
+          <CheckCircle size={120} className="text-green-600 mb-8" />
           <h2 className="text-5xl font-extrabold text-blue-900 leading-tight">Information has been stored safely!</h2>
          </div>
         </div>
@@ -647,12 +660,12 @@ export default function MemoryMateApp() {
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 bg-slate-100 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Live View Assistance</h2>
       
-      {liveVideoError && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center mb-8">{}</div>}
+      {liveVideoError && <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center mb-8">{liveVideoError}</div>}
 
       {isLiveAssistanceActive ? (
         <>
          <div className="w-full max-w-3xl bg-slate-800 aspect-video rounded-3xl flex flex-col items-center justify-center shadow-2xl border-8 border-slate-900 mb-10 overflow-hidden relative">
-          <Webcam audio={} ref={} videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full h-full object-cover" />
+          <Webcam audio={true} ref={webcamRefLive} videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full h-full object-cover" />
           <div className="absolute top-6 right-6 flex items-center bg-black/50 px-4 py-2 rounded-full">
            <div className="w-6 h-6 rounded-full bg-red-500 animate-pulse mr-3"></div>
            <span className="text-white text-xl font-bold">LIVE STREAM</span>
@@ -661,7 +674,7 @@ export default function MemoryMateApp() {
 
          <div className="flex flex-col items-center justify-center space-y-6 mb-12 p-8 bg-blue-50 rounded-3xl border-4 border-blue-200 w-full max-w-3xl">
           <div className="flex items-center space-x-6 text-blue-800">
-           <Mic size={} className={`bg-blue-200 p-3 rounded-full ${processingFrame ? 'animate-pulse' : ''}`} />
+           <Mic size={64} className={`bg-blue-200 p-3 rounded-full ${processingFrame ? 'animate-pulse' : ''}`} />
            <div className="flex space-x-2">
             <div className={`w-4 h-12 bg-blue-600 rounded-full ${processingFrame ? 'animate-bounce' : ''}`} style={{ animationDelay: '0ms' }}></div>
             <div className={`w-4 h-16 bg-blue-600 rounded-full ${processingFrame ? 'animate-bounce' : ''}`} style={{ animationDelay: '150ms' }}></div>
@@ -674,13 +687,13 @@ export default function MemoryMateApp() {
           </span>
          </div>
 
-         <button onClick={} className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 mt-auto mb-6 flex justify-center items-center">
+         <button onClick={stopLiveAssistance} className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 mt-auto mb-6 flex justify-center items-center">
           <StopCircle size={56} className="mr-6" /> Stop Live Assistance
          </button>
         </>
       ) : (
         <div className="flex flex-col items-center justify-center p-6 space-y-8 w-full max-w-3xl">
-         <button onClick={} className="w-full bg-teal-600 text-white text-5xl font-extrabold py-12 rounded-3xl shadow-2xl hover:bg-teal-700 active:bg-teal-800 border-8 border-teal-800 transition-all">
+         <button onClick={startLiveAssistance} className="w-full bg-teal-600 text-white text-5xl font-extrabold py-12 rounded-3xl shadow-2xl hover:bg-teal-700 active:bg-teal-800 border-8 border-teal-800 transition-all">
           <Video className="inline mr-6" size={56} /> Start Live Assistance
          </button>
          <BackButton onClick={() => setCurrentScreen('dashboard')} />
