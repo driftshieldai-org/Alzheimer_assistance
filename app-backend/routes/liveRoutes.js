@@ -33,7 +33,7 @@ export default function (app) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       userId = decoded.userId;
-      console.log(`🟢 JWT Verified for User: ${}`);
+      console.log(`🟢 JWT Verified for User: ${userId}`);
     } catch (err) {
       ws.close(1008, "Invalid token");
       return;
