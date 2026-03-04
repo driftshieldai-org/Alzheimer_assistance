@@ -15,6 +15,30 @@ import {
   StopCircle 
 } from 'lucide-react';
 
+const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+
+async function playPcmAudio(base64Data) {
+  try {
+    const binaryString = window.atob(base64Data);
+    const len = binaryString.length;
+    const bytes = new Int16Array(len / 2);
+    for (let i = 0; i < len / 2; i++) {
+        bytes[i] = binaryString.charCodeAt(i * 2) | (binaryString.charCodeAt(i * 2 + 1) << 8);
+    }
+    const buffer = audioContext.createBuffer(1, bytes.length, 24000);
+    const channelData = buffer.getChannelData(0);
+    for (let i = 0; i < bytes.length; i++) {
+        channelData[i] = bytes[i] / 32768.0; // Convert Int16 to Float32
+    }
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start();
+  } catch (err) {
+    console.error("Audio playback error:", err);
+  }
+}
+
 export default function MemoryMateApp() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -138,14 +162,19 @@ export default function MemoryMateApp() {
       const data = JSON.parse(event.data);
       if (data.error) {
         setLiveVideoError(`AI Message Error: ${data.error}`);
-        setProcessingFrame(false);
+        //setProcessingFrame(false);
       } else {
         //setAiTextResponse(data.description);
         //setAiAudioResponse(data.audio);
         //setProcessingFrame(false); // Processing finished, ready for next
         setAiTextResponse(data.description || "AI is speaking..."); // Display text if available, or a default
         // Add the data URI prefix for the audio base64
-        setAiAudioResponse(`data:audio/mp3;base64,${data.audioBase64}`);
+        //setAiAudioResponse(`data:audio/mp3;base64,${data.audioBase64}`);
+        //setProcessingFrame(false);
+        if (data.audioBase64) {
+          playPcmAudio(data.audioBase64);
+        }
+        // Briefly clear the processing state for the UI
         setProcessingFrame(false);
       }
     };
@@ -184,19 +213,20 @@ export default function MemoryMateApp() {
   };
 
   const sendLiveFrame = async () => {
-    if (!webcamRefLive.current || processingFrame) return; // Don't send if already processing
-
+//    if (!webcamRefLive.current || processingFrame) return; // Don't send if already processing
+    if (!webcamRefLive.current) return; 
     setProcessingFrame(true); // Indicate that a frame is being processed
-    setAiTextResponse("Listening and analyzing..."); // Show immediate feedback
-    setAiAudioResponse(''); // Clear previous audio
+    //setAiTextResponse("Listening and analyzing..."); // Show immediate feedback
+    //setAiAudioResponse(''); // Clear previous audio
 
     try {
         const imageSrc = webcamRefLive.current.getScreenshot({width: 640, height: 360}); 
-        if (!imageSrc) {
-            setLiveVideoError("Failed to capture image from webcam.");
-            setProcessingFrame(false);
-            return;
-        }
+        //if (!imageSrc) {
+        //    setLiveVideoError("Failed to capture image from webcam.");
+        //    setProcessingFrame(false);
+        //    return;
+        //}
+       if (!imageSrc) return;
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             // Send the base64 image over WebSocket
@@ -204,16 +234,16 @@ export default function MemoryMateApp() {
             const base64Data = imageSrc.split(',')[1]; // Extract the base64 part
             wsRef.current.send(JSON.stringify({ type: "frame", frameBase64: base64Data }));
            
-        } else {
-            console.warn("WebSocket not open, cannot send frame.");
-            setLiveVideoError("Live assistance connection lost.");
-            setProcessingFrame(false);
-            stopLiveAssistance(); // Attempt to stop to allow restart
-        }
+        } //else {
+          //  console.warn("WebSocket not open, cannot send frame.");
+          //  setLiveVideoError("Live assistance connection lost.");
+          //  setProcessingFrame(false);
+          //  stopLiveAssistance(); // Attempt to stop to allow restart
+        //}
     } catch (err) {
         console.error("Error capturing or sending frame:", err);
-        setLiveVideoError("Failed to capture or send video frame.");
-        setProcessingFrame(false);
+        //setLiveVideoError("Failed to capture or send video frame.");
+        //setProcessingFrame(false);
     }
   };
 
