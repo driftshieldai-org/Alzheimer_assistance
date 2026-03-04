@@ -16,6 +16,15 @@ import {
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 let nextPlayTime = 0; // Tracks when the next chunk should play
 
+function clearAudioQueue() {
+  activeAudioSources.forEach(source => {
+    try { source.stop(); source.disconnect(); } catch (e) {}
+  });
+  activeAudioSources = [];
+  nextPlayTime = audioContext.currentTime; // Reset timing back to now
+}
+
+
 async function playPcmAudio(base64Data) {
   try {
     const binaryString = window.atob(base64Data);
@@ -34,6 +43,10 @@ async function playPcmAudio(base64Data) {
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
+
+    source.onended = () => {
+        activeAudioSources = activeAudioSources.filter(s => s !== source);
+    };
     
     const currentTime = audioContext.currentTime;
     
@@ -42,6 +55,7 @@ async function playPcmAudio(base64Data) {
     }
     
     source.start(nextPlayTime);
+    activeAudioSources.push(source);
     nextPlayTime += buffer.duration;
   } catch (err) {
     console.error("Audio playback error:", err);
@@ -114,9 +128,16 @@ export default function MemoryMateApp() {
 
   const startMicCapture = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
-      
+       const stream = await navigator.mediaDevices.getUserMedia({ 
+         audio: {
+           sampleRate: 16000,
+           echoCancellation: true,
+           noiseSuppression: true,
+           autoGainControl: true
+         } 
+       });
+       micStreamRef.current = stream;
+        
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       audioContextMicRef.current = audioCtx;
       
