@@ -28,6 +28,8 @@ function clearAudioQueue() {
 
 async function playPcmAudio(base64Data) {
   try {
+
+    
     const binaryString = window.atob(base64Data);
     const len = binaryString.length;
     const bytes = new Int16Array(len / 2);
@@ -150,26 +152,92 @@ export default function MemoryMateApp() {
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       audioProcessorRef.current = processor;
 
-      processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
+// ---- VAD STATE ----
+    let isSpeaking = false;
+    let silenceStart = null;
+    const SILENCE_THRESHOLD = 0.01;     // Adjust if needed
+    const SILENCE_DURATION = 800;       // ms before ending turn
+
+    processor.onaudioprocess = (e) => {
+      const inputData = e.inputBuffer.getChannelData(0);
+
+      // ---- Calculate RMS energy ----
+      let sum = 0;
+      for (let i = 0; i < inputData.length; i++) {
+        sum += inputData[i] * inputData[i];
+      }
+      const rms = Math.sqrt(sum / inputData.length);
+
+      const now = Date.now();
+
+      // ---- Speech detected ----
+      if (rms > SILENCE_THRESHOLD) {
+
+        // Speech START
+        if (!isSpeaking) {
+          console.log("🎤 Speech started");
+
+          isSpeaking = true;
+          silenceStart = null;
+
+          // Interrupt model immediately
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({
+              type: "speech_start"
+            }));
+          }
+
+          // Clear currently playing AI audio
+          clearAudioQueue();
+        }
+
+        // Convert Float32 → PCM16
         const pcm16 = new Int16Array(inputData.length);
         for (let i = 0; i < inputData.length; i++) {
           let s = Math.max(-1, Math.min(1, inputData[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
-        
+
         const buffer = new Uint8Array(pcm16.buffer);
-        let binary = '';
+        let binary = "";
         for (let i = 0; i < buffer.byteLength; i++) {
           binary += String.fromCharCode(buffer[i]);
         }
         const base64Data = window.btoa(binary);
 
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: base64Data }));
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: "audio",
+            audioBase64: base64Data
+          }));
         }
-      };
 
+      } else {
+        // ---- Silence detected ----
+
+        if (isSpeaking) {
+          if (!silenceStart) {
+            silenceStart = now;
+          }
+
+          const silenceElapsed = now - silenceStart;
+
+          if (silenceElapsed > SILENCE_DURATION) {
+            console.log("🛑 End of turn detected");
+
+            isSpeaking = false;
+            silenceStart = null;
+
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(JSON.stringify({
+                type: "end_of_turn"
+              }));
+            }
+          }
+        }
+      }
+    };
+      
       source.connect(processor);
       processor.connect(audioCtx.destination);
     } catch (err) {
