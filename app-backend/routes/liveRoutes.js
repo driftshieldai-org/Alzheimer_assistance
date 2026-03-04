@@ -74,7 +74,7 @@ export default function (app) {
       // Ensure model supports multimodal real-time stream
       const model = "gemini-2.0-flash-exp"; 
 
-      console.log(`projectid: ${} location: ${}`);
+      console.log(`projectid: ${projectId} location: ${location}`);
       
       const ai = new GoogleGenAI({
         vertexai: true,     
