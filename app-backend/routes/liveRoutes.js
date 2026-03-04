@@ -4,7 +4,6 @@ import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
 import jwt from 'jsonwebtoken';
 import { GoogleGenAI } from '@google/genai'; 
-import { GoogleAuth } from 'google-auth-library';
 
 export default function (app) {
   const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
@@ -40,12 +39,16 @@ export default function (app) {
     }
 
     try {
-      console.log("Fetching User Data and reference photos...");
-      
-      // Fetch user's actual name to personalize the greeting
+      // 1. Fetch User Data to get User Name
+      let userName = userId;
       const userDoc = await db.collection('users').doc(userId).get();
-      const userName = userDoc.exists ? (userDoc.data().name || userId) : userId;
+      if (userDoc.exists) {
+        userName = userDoc.data().name || userId;
+      }
 
+      console.log(`Fetching reference photos for ${userName}...`);
+      
+      // 2. Fetch User Photos with Dates
       const photosSnapshot = await db
         .collection('users')
         .doc(userId)
@@ -53,58 +56,51 @@ export default function (app) {
         .get();
 
       const referencePhotos = [];
-
       for (const doc of photosSnapshot.docs) {
         const photoData = doc.data();
         if (photoData.filename) {
           const base64Image = await getGcsFileAsBase64(photoData.filename);
           referencePhotos.push({
             description: photoData.description || "No description",
-            photoDate: photoData.photoDate || "an unknown date",
+            date: photoData.photoDate || "an unknown date",
             mimeType: "image/jpeg",
             data: base64Image
           });
         }
       }
+      console.log(`Loaded ${referencePhotos.length} reference photos`);
 
-      console.log(`Loaded ${referencePhotos.length} reference photos for ${userName}`);
+      // 3. System Instruction tuned to handle dates, people, famous places, and general background
+      const SYSTEM_INSTRUCTION = `
+        You are a polite, helpful AI assistant named MemoryMate with a soft, calming tone.
+        The user's name is ${userName}. Always greet them warmly by their name when the session starts.
+        You have been given reference photos of the user's memories (people and places) along with the dates they occurred.
+        
+        Your instructions while continuously observing the live video stream and listening to audio:
+        1. SAVED MEMORIES: If the live stream MATCHES a reference photo (person or place), warmly mention it and tell them the specific date. For example: "It looks like you are at [place]. You might have visited this place on [Date]." or "Ah, that is [Person], you met with them on [Date]."
+        2. FAMOUS PLACES: If it does NOT match a saved memory, try to identify if the video shows a famous landmark or place globally. If it does, provide an interesting fact about it.
+        3. GENERAL BACKGROUND: If it is not a saved memory and not a famous place, observe the immediate background and describe it naturally (e.g., "It looks like you are resting in your bedroom" or "I see you are in the kitchen").
+        
+        Respond ONLY using spoken voice. Keep responses concise, warm, and highly conversational. Answer naturally to any audio questions they ask.
+      `;
 
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_REGION || "us-central1";
-      // Ensure model supports multimodal real-time stream
-      const model = "gemini-2.0-flash-exp"; 
+      const model = "gemini-live-2.5-flash-native-audio";
 
-      console.log(`projectid: ${projectId} location: ${location}`);
-      
+      console.log(`projectId: ${projectId} location: ${location}`);
+
       const ai = new GoogleGenAI({
-        vertexai: true,     
-        project: projectId, 
-        location: location  
+        vertexai: true,
+        project: projectId,
+        location: location
       });
-
-      // System Instructions tailored to dynamically mention User's Name and rules for places/people
-      const SYSTEM_INSTRUCTION = `
-You are MemoryMate, a polite, helpful AI assistant with a soft, calming tone.
-You are assisting a user named ${userName}. Start the conversation by warmly greeting ${userName} by name!
-You will receive reference photos of the user's memories (people and places) along with a real-time continuous video and audio stream.
-
-Your tasks:
-1. Listen closely to the user's spoken audio and respond conversationally and naturally.
-2. Continuously observe the live video stream. Identify if the scene contains a PERSON or a PLACE.
-3. Match against the provided reference photos:
-   - If a person or place MATCHES a reference photo, politely inform the user.
-   - Crucially, you MUST mention the DATE and DESCRIPTION stored with the photo. For example: "You might have visited this place on [Date]" or "You have met with [Description] on [Date]."
-4. If it's a NEW scene (does NOT match reference photos):
-   - First, check if it matches a famous world landmark or well-known place. If yes, respond accordingly with a friendly detail.
-   - If it is NOT a famous place, analyze the background and describe the environment contextually (e.g., "It looks like you are in your kitchen", "You seem to be in a bedroom").
-5. Keep your responses concise, conversational, and ONLY respond using spoken voice.
-`;
 
       let resolveSetupComplete;
       const waitForSetup = new Promise((resolve) => {
         resolveSetupComplete = resolve;
       });
-      
+
       const session = await ai.live.connect({
         model: model,
         config: {
@@ -126,10 +122,10 @@ Your tasks:
               resolveSetupComplete(); 
               return;
             }
-            
+
             if (message.serverContent?.modelTurn?.parts) {
               for (const part of message.serverContent.modelTurn.parts) {
-                // Forward Audio back to the client
+                // Forward Audio back to client
                 if (part.inlineData?.data) {
                   if (ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
@@ -138,8 +134,6 @@ Your tasks:
                     }));
                   }
                 }
-                
-                // (Optional) Transcripts logging
                 if (part.text) {
                   console.log("Model spoke:", part.text);
                 }
@@ -150,7 +144,7 @@ Your tasks:
             console.error("Gemini Live API Error:", err);
           },
           onclose: (e) => {
-            console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`);
+            console.log(`🔴 Gemini WS Closed. Code: ${e.code}`);
             if (ws.readyState === WebSocket.OPEN) {
               ws.close();
             }
@@ -159,20 +153,17 @@ Your tasks:
       });
 
       await waitForSetup;
-      
-      // ---------------------------
-      // SEND REFERENCE PHOTOS AND START GREETING
-      // ---------------------------
+
+      // 4. Send Photos + Dates as Context
       if (referencePhotos.length > 0) {
         console.log("Sending reference photos to Gemini...");
-         
+        
         const parts = [
-          { text: "Here are reference photos of the user's memories. Pay close attention to their appearance, descriptions, and dates. I am now starting the live video and audio stream. Please greet me!" }
+          { text: `Here are reference photos of the user's memories. Pay close attention to their descriptions and dates. I am now starting the live stream. Please greet me by my name (${userName})!` }
         ];
-         
+        
         referencePhotos.forEach(photo => {
-          // Injecting the date with the description so the model has the exact context
-          parts.push({ text: `Reference photo - Date: ${photo.photoDate}, Description: ${photo.description}` });
+          parts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
           parts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
         });
 
@@ -186,25 +177,24 @@ Your tasks:
         console.log("✅ Reference photos sent successfully.");
       } else {
         session.sendClientContent({
-          turns: [{ role: "user", parts: [{ text: "Hello, I am ready. Please greet me!" }] }],
+          turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
           turnComplete: true
         });
       }
-      
-      // ---------------------------
-      // CONTINUOUSLY STREAM AUDIO & VIDEO
-      // ---------------------------
+
+      // 5. Forward BOTH Real-time Video Frames and Real-time Microphone Audio
       ws.on('message', (msg) => {
         const data = JSON.parse(msg);
 
-        // Instantly relay high-frequency frames to Gemini API
+        // Forward Video frame
         if (data.type === "frame") {
           session.sendRealtimeInput([{
             mimeType: "image/jpeg",
             data: data.frameBase64
           }]);
         } 
-        // Instantly relay audio chunks to Gemini API
+        
+        // Forward User's Microphone Audio chunks
         else if (data.type === "audio") {
           session.sendRealtimeInput([{
             mimeType: "audio/pcm;rate=16000",
