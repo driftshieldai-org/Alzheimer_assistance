@@ -151,7 +151,7 @@ export default function (app) {
 
    // Setup 2: Trigger initial AI greeting (Notice turnComplete is TRUE here!)
    await session.sendClientContent({
-     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready. What do you see?` }] }],
+     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am turning on my camera and microphone now. Let me know when you are ready.` }] }],
      turnComplete: true 
    });
 
