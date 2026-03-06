@@ -47,37 +47,37 @@ export default function (app) {
     }
    }
 
-  console.log(`Loaded ${referencePhotos.length} reference photos`);
-  
+   console.log(`Loaded ${referencePhotos.length} reference photos`);
+   
    const SYSTEM_INSTRUCTION = `
-    You are a polite, helpful AI assistant named MemoryMate with a soft, calming tone.
-    The user's name is ${userName}.
-    Instructions:
-    1. Listen to the user's voice and observe the video stream.
-    2. When the user asks you a question or speaks to you, answer naturally based on what you see in the video.
-    3. Match against the provided reference photos:
-       - If a person or place MATCHES a reference photo, politely inform the user.
-       - Crucially, you MUST mention the DATE and DESCRIPTION stored with the photo. For example: "You might have visited this place on [Date]" or "You have met with [Description] on [Date]."
-    4. If it's a NEW scene (does NOT match reference photos):
-       - First, check if it matches a famous world landmark or well-known place. If yes, respond accordingly with a friendly detail.
-       - If it is NOT a famous place, analyze the background and describe the environment contextually (e.g., "It looks like you are in your kitchen", "You seem to be in a bedroom").
-    5. Keep your responses conversational, short, and natural.
+   You are a polite, helpful AI assistant named MemoryMate with a soft, calming tone.
+   The user's name is ${userName}.
+   Instructions:
+   1. Listen to the user's voice and observe the video stream.
+   2. When the user asks you a question or speaks to you, answer naturally based on what you see in the video.
+   3. Match against the provided reference photos:
+     - If a person or place MATCHES a reference photo, politely inform the user.
+     - Crucially, you MUST mention the DATE and DESCRIPTION stored with the photo. For example: "You might have visited this place on [Date]" or "You have met with [Description] on [Date]."
+   4. If it's a NEW scene (does NOT match reference photos):
+     - First, check if it matches a famous world landmark or well-known place. If yes, respond accordingly with a friendly detail.
+     - If it is NOT a famous place, analyze the background and describe the environment contextually.
+   5. Keep your responses conversational, short, and natural.
    `;
 
-    const projectId = process.env.GCP_PROJECT_ID;
-    const location = process.env.GCP_REGION || "us-central1";
-    // Using gemini-1.0-pro as it's widely available and avoids the 1008 connection errors you were seeing.
-    const model = "gemini-1.0-pro"; 
-    //const model = "gemini-live-2.5-flash-native-audio";
+   const projectId = process.env.GCP_PROJECT_ID;
+   const location = process.env.GCP_REGION || "us-central1";
+   
+   // FIX 1: Use the correct globally available native audio model for Vertex AI
+   const model = "gemini-live-2.5-flash-native-audio";
 
-    console.log(`projectId: ${projectId} location: ${location}`);
+   console.log(`projectId: ${projectId} location: ${location}`);
     
-   const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location || "us-central1" });
+   const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location });
    
    const session = await ai.live.connect({
     model: model, 
     config: {
-     responseModalities: [Modality.AUDIO],
+     responseModalities: [Modality.AUDIO], // Or ["AUDIO"]
      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } },
      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }
     },
@@ -96,113 +96,123 @@ export default function (app) {
        }
       }
 
-
       // Forward audio back to frontend
       if (message.serverContent?.modelTurn?.parts) {
-        let generatedText = '';
-        let generatedAudioBase64 = '';
+       let generatedText = '';
+       let generatedAudioBase64 = '';
 
-        for (const part of message.serverContent.modelTurn.parts) {
-          if (part.text) {
-            generatedText += part.text;
-          }
-          if (part.inlineData?.data) {
-            generatedAudioBase64 = part.inlineData.data;
-          }
+       for (const part of message.serverContent.modelTurn.parts) {
+        if (part.text) {
+         generatedText += part.text;
         }
+        if (part.inlineData?.data) {
+         generatedAudioBase64 = part.inlineData.data;
+        }
+       }
 
-        if ((generatedText || generatedAudioBase64) && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: "audioResponse", // Use a consistent type
-            description: generatedText,
-            audioBase64: generatedAudioBase64
-          }));
-        }
+       if ((generatedText || generatedAudioBase64) && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+         type: "audioResponse",
+         description: generatedText,
+         audioBase64: generatedAudioBase64
+        }));
+       }
       }
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
      onclose: (e) => { 
-       console.log(🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"});
-       if (ws.readyState === WebSocket.OPEN) ws.close(); }
+      console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`);
+      if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
 
-      // 4. Send Photos + Dates as Context
-      if (referencePhotos.length > 0) {
-        console.log("Sending reference photos to Gemini...");
+   // Send Photos + Dates as Context
+   if (referencePhotos.length > 0) {
+    console.log("Sending reference photos to Gemini...");
+    
+    await session.sendClientContent({
+      turns: [{ role: "user", parts: [{ text: `System Note: Here are reference photos of my memories. Use them as context.` }] }],
+      turnComplete: false
+    });
 
-        // Consolidate all reference photos into a single message for reliability.
-        const initialParts = [];
-        referencePhotos.forEach(photo => {
-            initialParts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
-            initialParts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
-        });
-
-        await session.sendClientContent({
-            turns: [{
-                role: "user",
-                parts: initialParts
-            }],
-            turnComplete: false // CRITICAL: Keep turn open for live video/audio
-        });
-        console.log("✅ Reference photos sent successfully.");
-      } else {
-        await session.sendClientContent({
-          turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
-          turnComplete: false // CRITICAL: Set to false to keep the conversation going
-        });
-      }
-
-      // 5. Forward BOTH Real-time Video Frames and Real-time Microphone Audio
-      ws.on('message', async (msg) => {
-        const data = JSON.parse(msg);
-
-        // Forward Video frame
-        if (data.type === "frame") {
-          await session.sendRealtimeInput({ media: {
-            mimeType: "image/jpeg",
-            data: data.frameBase64
-          }});
-        } 
-        
-        // Forward User's Microphone Audio chunks
-        else if (data.type === "audio") {
-          console.log("🎤 Received audio chunk from client."); // Helps confirm audio is streaming
-          await session.sendRealtimeInput({ media: {
-            mimeType: "audio/pcm;rate=16000",
-            data: data.audioBase64
-          }});
-        }
-
-        // ---- Speech Start (Interrupt AI) ----
-       else if (data.type === "speech_start") {
-         console.log("🔴 User interruption detected");
-     
-         await session.sendClientContent({
-           turnComplete: false
-         });
-       }
-     
-       // ---- End of Turn ----
-       else if (data.type === "end_of_turn") {
-         console.log("🟢 Sending turnComplete to Gemini");
-     
-         await session.sendClientContent({
-           turnComplete: true
-         });
-       }
+    for (const photo of referencePhotos) {
+      await session.sendClientContent({
+        turns: [{
+          role: "user",
+          parts: [
+            { text: `Memory - Description: ${photo.description}, Date: ${photo.date}` },
+            { inlineData: { mimeType: photo.mimeType, data: photo.data } }
+          ]
+        }],
+        turnComplete: false
       });
+    }
+    console.log("✅ Reference photos sent successfully.");
+    
+    // Final text to prompt the initial AI greeting
+    await session.sendClientContent({
+     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
+     turnComplete: true // FIX 2: Set to TRUE here so the model starts its greeting immediately!
+    });
+   } else {
+    await session.sendClientContent({
+     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
+     turnComplete: true // FIX 2: Set to TRUE
+    });
+   }
 
-      ws.on('close', () => {
-        console.log("Client WS closed connection.");
-      });
+   // Forward Real-time Video Frames and Microphone Audio
+   ws.on('message', async (msg) => {
+    const data = JSON.parse(msg);
 
-    } catch (error) {
-      console.error("Live Stream Error:", error);
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close(1011, "Server error");
+    // Forward Video frame
+    if (data.type === "frame") {
+     // FIX 3: Use { video: { ... } } instead of { media: { ... } }
+     await session.sendRealtimeInput({ 
+      video: {
+       mimeType: "image/jpeg",
+       data: data.frameBase64
       }
+     });
+    } 
+    
+    // Forward User's Microphone Audio chunks
+    else if (data.type === "audio") {
+     // FIX 4: Use { audio: { ... } } instead of { media: { ... } }
+     await session.sendRealtimeInput({ 
+      audio: {
+       mimeType: "audio/pcm;rate=16000",
+       data: data.audioBase64
+      }
+     });
     }
 
+    // Speech Start (Interrupt AI)
+    else if (data.type === "speech_start") {
+     console.log("🔴 User interruption detected");
+     await session.sendClientContent({
+      turnComplete: false
+     });
+    }
+   
+    // End of Turn
+    else if (data.type === "end_of_turn") {
+     console.log("🟢 Sending turnComplete to Gemini");
+     await session.sendClientContent({
+      turnComplete: true
+     });
+    }
+   });
+
+   ws.on('close', () => {
+    console.log("Client WS closed connection.");
+   });
+
+  } catch (error) {
+   console.error("Live Stream Error:", error);
+   if (ws.readyState === WebSocket.OPEN) {
+    ws.close(1011, "Server error");
+   }
+  }
  });
 }
