@@ -129,117 +129,67 @@ export default function MemoryMateApp() {
     };
   }, [currentScreen]);
 
+  // This function now uses AudioWorklet for better performance and to avoid deprecated APIs.
   const startMicCapture = async () => {
     try {
-       const stream = await navigator.mediaDevices.getUserMedia({ 
-         audio: {
-           sampleRate: 16000,
-           echoCancellation: true,
-           noiseSuppression: true,
-           autoGainControl: true
-         } 
-       });
-       micStreamRef.current = stream;
-        
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        console.log("WebSocket not ready, skipping mic capture.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          sampleRate: 16000,
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      micStreamRef.current = stream;
+
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       audioContextMicRef.current = audioCtx;
 
       if (audioCtx.state === 'suspended') {
-         await audioCtx.resume();
-       }
-      
+        await audioCtx.resume();
+      }
+
+      // Load the AudioWorklet processor
+      // Ensure 'audio-processor.js' is in your public folder
+      await audioCtx.audioWorklet.addModule('/audio-processor.js');
+      const processorNode = new AudioWorkletNode(audioCtx, 'audio-processor');
+      audioProcessorRef.current = processorNode;
+
       const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      audioProcessorRef.current = processor;
 
-// ---- VAD STATE ----
-    let isSpeaking = false;
-    let silenceStart = null;
-    const SILENCE_THRESHOLD = 0.01;     // Adjust if needed
-    const SILENCE_DURATION = 800;       // ms before ending turn
+      // Handle messages from the worklet (VAD events, audio data)
+      processorNode.port.onmessage = (event) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    processor.onaudioprocess = (e) => {
-      const inputData = e.inputBuffer.getChannelData(0);
+        const { type, audioBase64 } = event.data;
 
-      // ---- Calculate RMS energy ----
-      let sum = 0;
-      for (let i = 0; i < inputData.length; i++) {
-        sum += inputData[i] * inputData[i];
-      }
-      const rms = Math.sqrt(sum / inputData.length);
-
-      const now = Date.now();
-
-      // ---- Speech detected ----
-      if (rms > SILENCE_THRESHOLD) {
-
-        // Speech START
-        if (!isSpeaking) {
-          console.log("🎤 Speech started");
-
-          isSpeaking = true;
-          silenceStart = null;
-
-          // Interrupt model immediately
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({
-              type: "speech_start"
-            }));
-          }
-
-          // Clear currently playing AI audio
-          clearAudioQueue();
+        switch (type) {
+          case 'speech_start':
+            console.log("🎤 Speech started (from worklet)");
+            clearAudioQueue(); // Interrupt AI speech
+            wsRef.current.send(JSON.stringify({ type: "speech_start" }));
+            break;
+          case 'audio_data':
+            wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+            break;
+          case 'end_of_turn':
+            console.log("🛑 End of turn detected (from worklet)");
+            wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
+            break;
+          default:
+            break;
         }
+      };
 
-        // Convert Float32 → PCM16
-        const pcm16 = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          let s = Math.max(-1, Math.min(1, inputData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
+      source.connect(processorNode);
+      processorNode.connect(audioCtx.destination); // Connect to destination to hear audio (optional)
 
-        const buffer = new Uint8Array(pcm16.buffer);
-        let binary = "";
-        for (let i = 0; i < buffer.byteLength; i++) {
-          binary += String.fromCharCode(buffer[i]);
-        }
-        const base64Data = window.btoa(binary);
-
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({
-            type: "audio",
-            audioBase64: base64Data
-          }));
-        }
-
-      } else {
-        // ---- Silence detected ----
-
-        if (isSpeaking) {
-          if (!silenceStart) {
-            silenceStart = now;
-          }
-
-          const silenceElapsed = now - silenceStart;
-
-          if (silenceElapsed > SILENCE_DURATION) {
-            console.log("🛑 End of turn detected");
-
-            isSpeaking = false;
-            silenceStart = null;
-
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({
-                type: "end_of_turn"
-              }));
-            }
-          }
-        }
-      }
-    };
-      
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
     } catch (err) {
       console.error("Microphone access denied or failed", err);
       setLiveVideoError("Could not access microphone for real-time conversation.");
@@ -247,8 +197,9 @@ export default function MemoryMateApp() {
   };
 
   const startLiveAssistance = async () => {
+    // Ensure audio context is resumed by a user gesture, like the start button click
     if (audioContext.state === 'suspended') {
-      audioContext.resume();
+      await audioContext.resume();
     }
     
     const token = localStorage.getItem('token');
@@ -316,7 +267,10 @@ export default function MemoryMateApp() {
     }
     // Clean up Audio mic connections
     if (audioProcessorRef.current && audioContextMicRef.current) {
-      audioProcessorRef.current.disconnect();
+      if (audioProcessorRef.current.port) {
+        audioProcessorRef.current.port.postMessage({ type: 'stop' });
+      }
+      audioProcessorRef.current.disconnect(); // Disconnect the worklet node
       audioContextMicRef.current.close();
       audioProcessorRef.current = null;
       audioContextMicRef.current = null;
