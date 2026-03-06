@@ -1,8 +1,7 @@
-// Base64 encoding table (AudioWorklet does not have access to window.btoa)
+// Base64 encoding table
 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function encodeBase64(bytes) {
   let result = '';
-  // Loop through bytes in chunks of 3 to avoid needing padding characters
   for (let i = 0; i < bytes.length; i += 3) {
     result += chars[bytes[i] >> 2];
     result += chars[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
@@ -15,26 +14,32 @@ function encodeBase64(bytes) {
 class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    // 4092 Int16s = 8184 bytes (evenly divisible by 3 for clean Base64 encoding)
     this.bufferSize = 4092; 
     this.buffer = new Int16Array(this.bufferSize);
     this.bytesWritten = 0;
+    
+    // VAD (Voice Activity Detection) State
     this.isSpeaking = false;
     this.silenceFrames = 0;
-    this.vadThreshold = 0.02; // Volume threshold for speech detection
+    this.speechFrames = 0;
+    
+    // INCREASED THRESHOLD: 0.05 requires actual speaking volume, ignoring fans/static.
+    this.vadThreshold = 0.05; 
   }
 
   process(inputs, outputs, parameters) {
     const input = inputs[0];
     if (input && input.length > 0) {
       const channelData = input[0];
-      let hasSpeech = false;
+      let maxVol = 0;
 
       for (let i = 0; i < channelData.length; i++) {
         let val = channelData[i];
         
-        // Detect if volume passes threshold
-        if (Math.abs(val) > this.vadThreshold) hasSpeech = true;
+        // Find the loudest peak in this audio frame
+        if (Math.abs(val) > maxVol) {
+          maxVol = Math.abs(val);
+        }
         
         // Convert Float32 audio to PCM Int16
         let s = Math.max(-1, Math.min(1, val));
@@ -45,21 +50,26 @@ class AudioProcessor extends AudioWorkletProcessor {
           const bytes = new Uint8Array(this.buffer.buffer);
           const base64 = encodeBase64(bytes);
           this.port.postMessage({ type: 'audio_data', audioBase64: base64 });
-          this.bytesWritten = 0; // Reset buffer
+          this.bytesWritten = 0;
         }
       }
 
-      // Voice Activity Detection (VAD) events
-      if (hasSpeech) {
+      // VAD Logic: ~8ms per frame
+      if (maxVol > this.vadThreshold) {
         this.silenceFrames = 0;
-        if (!this.isSpeaking) {
+        this.speechFrames++;
+        
+        // Require ~80ms of continuous sound to count as speech (ignores clicks/pops)
+        if (!this.isSpeaking && this.speechFrames > 10) {
           this.isSpeaking = true;
           this.port.postMessage({ type: 'speech_start' });
         }
       } else {
+        this.speechFrames = 0;
         this.silenceFrames++;
-        // ~0.5 seconds of silence
-        if (this.isSpeaking && this.silenceFrames > 60) { 
+        
+        // Require ~1 second of pure silence to end the turn
+        if (this.isSpeaking && this.silenceFrames > 125) { 
           this.isSpeaking = false;
           this.port.postMessage({ type: 'end_of_turn' });
         }
