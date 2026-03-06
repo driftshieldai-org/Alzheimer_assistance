@@ -66,7 +66,8 @@ export default function (app) {
 
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_REGION || "us-central1";
-    const model = "gemini-live-2.5-flash-native-audio";
+    const model = "gemini-1.5-flash-preview-0514"; // Use a current, valid model
+    //const model = "gemini-live-2.5-flash-native-audio";
 
     console.log(`projectId: ${projectId} location: ${location}`);
     
@@ -113,7 +114,7 @@ export default function (app) {
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
      onclose: () => { 
-       console.log(`🔴 Gemini WS Closed. Code: ${e.code}`);
+       console.log(`🔴 Gemini WS Closed.`);
        if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
@@ -125,7 +126,7 @@ export default function (app) {
         console.log("Sending reference photos to Gemini...");
         
         const parts = [
-          { text: `System Note: I am providing you with reference photos of my past memories. Do NOT analyze these as my current surroundings right now. Just store them in your context. Acknowledge me by my name (${userName}) and say you are ready, then wait for the live video stream and my voice.` }
+          { text: `System Note: Here are reference photos of my memories. Use them as context. The user's name is ${userName}.` }
         ];
         
         referencePhotos.forEach(photo => {
@@ -138,11 +139,11 @@ export default function (app) {
             role: "user",
             parts: parts
           }],
-          turnComplete: true 
+          turnComplete: false // CRITICAL: Set to false to keep the conversation going
         });
         console.log("✅ Reference photos sent successfully.");
       } else {
-        session.sendClientContent({
+        await session.sendClientContent({
           turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
           turnComplete: true
         });
@@ -154,15 +155,15 @@ export default function (app) {
 
         // Forward Video frame
         if (data.type === "frame") {
-          session.sendRealtimeInput([{
+          session.sendRealtimeInput({ media: [{
             mimeType: "image/jpeg",
             data: data.frameBase64
-          }]);
+          }]});
         } 
         
         // Forward User's Microphone Audio chunks
         else if (data.type === "audio") {
-          session.sendRealtimeInput([{
+          session.sendRealtimeInput({ media: [{
             mimeType: "audio/pcm;rate=16000",
             data: data.audioBase64
           }]);
