@@ -120,8 +120,8 @@ export default function (app) {
       }
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
-     onclose: () => { 
-       console.log(`🔴 Gemini WS Closed.`);
+     onclose: (e) => { 
+       console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`);
        if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
