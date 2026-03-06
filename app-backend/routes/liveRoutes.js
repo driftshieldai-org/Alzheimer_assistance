@@ -156,17 +156,18 @@ export default function (app) {
    });
 
    // Stream Handling
-   ws.on('message', async (msg) => {
+    ws.on('message', async (msg) => {
     const data = JSON.parse(msg);
 
-    try {
-     // FIX: sendRealtimeInput takes an ARRAY of media chunks, not a nested object!
+   try {
+     // 1. Forward Video Frame
      if (data.type === "frame") {
       await session.sendRealtimeInput([{
          mimeType: "image/jpeg",
          data: data.frameBase64
       }]);
      } 
+     // 2. Forward Audio Data
      else if (data.type === "audio") {
       await session.sendRealtimeInput([{
          mimeType: "audio/pcm;rate=16000",
@@ -174,14 +175,15 @@ export default function (app) {
       }]);
      }
      
-     // Note: Interrupting model safely. Providing empty `turns` array prevents validation crash.
+      // 3. Handle Speech Interruption gracefully
+     // We DO NOT send `turns: []` to Gemini here. Gemini's native audio engine 
+     // automatically detects your voice in the PCM stream and cuts itself off!
+     // Your frontend is already muting the audio queue on `speech_start`, which is perfect.
      else if (data.type === "speech_start") {
-      console.log("🔴 User speech started.");
-      await session.sendClientContent({ turns: [], turnComplete: false });
+      console.log("🎤 User started speaking. (Frontend muted AI audio playback)");
      }
      else if (data.type === "end_of_turn") {
-      console.log("🟢 User turn ended.");
-      await session.sendClientContent({ turns: [], turnComplete: true });
+      console.log("🤫 User stopped speaking. Waiting for Gemini native response...");
      }
 
     } catch (sendErr) {
