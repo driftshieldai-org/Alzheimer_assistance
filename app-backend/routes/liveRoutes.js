@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
 import jwt from 'jsonwebtoken';
-import { GoogleGenAI } from '@google/genai'; 
+import { GoogleGenAI, Modality } from '@google/genai'; 
 
 export default function (app) {
  const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
@@ -73,13 +73,10 @@ export default function (app) {
     
    const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location || "us-central1" });
    
-   let resolveSetupComplete;
-   const waitForSetup = new Promise((resolve) => resolveSetupComplete = resolve);
-
    const session = await ai.live.connect({
     model: model, 
     config: {
-     responseModalities: ["AUDIO"],
+     responseModalities: [Modality.AUDIO],
      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } },
      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }
     },
@@ -88,7 +85,6 @@ export default function (app) {
      onmessage: (message) => {
       if (message.setupComplete) {
        console.log("✅ Gemini Live API Setup Complete!"); 
-       resolveSetupComplete(); 
        return;
       }
 
@@ -119,61 +115,62 @@ export default function (app) {
     }
    });
 
-   await waitForSetup;
-
       // 4. Send Photos + Dates as Context
       if (referencePhotos.length > 0) {
         console.log("Sending reference photos to Gemini...");
         
-        const parts = [
-          { text: `System Note: Here are reference photos of my memories. Use them as context. The user's name is ${userName}.` }
-        ];
-        
-        referencePhotos.forEach(photo => {
-          parts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
-          parts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
+        // Send a system note first
+        await session.sendClientContent({
+            turns: [{ role: "user", parts: [{ text: `System Note: Here are reference photos of my memories. Use them as context. The user's name is ${userName}.` }] }],
+            turnComplete: false
         });
 
-        session.sendClientContent({
-          turns: [{
-            role: "user",
-            parts: parts
-          }],
-          turnComplete: false // CRITICAL: Set to false to keep the conversation going
-        });
+        // Send each photo individually to avoid large message sizes
+        for (const photo of referencePhotos) {
+            await session.sendClientContent({
+                turns: [{
+                    role: "user",
+                    parts: [
+                        { text: `Memory - Description: ${photo.description}, Date: ${photo.date}` },
+                        { inlineData: { mimeType: photo.mimeType, data: photo.data } }
+                    ]
+                }],
+                turnComplete: false // Keep the turn open
+            });
+        }
         console.log("✅ Reference photos sent successfully.");
       } else {
         await session.sendClientContent({
           turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
-          turnComplete: true
+          turnComplete: false // CRITICAL: Set to false to keep the conversation going
         });
       }
 
       // 5. Forward BOTH Real-time Video Frames and Real-time Microphone Audio
-      ws.on('message', (msg) => {
+      ws.on('message', async (msg) => {
         const data = JSON.parse(msg);
 
         // Forward Video frame
         if (data.type === "frame") {
-          session.sendRealtimeInput({ media: [{
+          await session.sendRealtimeInput({ media: {
             mimeType: "image/jpeg",
             data: data.frameBase64
-          }]});
+          }});
         } 
         
         // Forward User's Microphone Audio chunks
         else if (data.type === "audio") {
-          session.sendRealtimeInput({ media: [{
+          await session.sendRealtimeInput({ media: {
             mimeType: "audio/pcm;rate=16000",
             data: data.audioBase64
-          }]);
+          }});
         }
 
         // ---- Speech Start (Interrupt AI) ----
        else if (data.type === "speech_start") {
          console.log("🔴 User interruption detected");
      
-         session.sendClientContent({
+         await session.sendClientContent({
            turnComplete: false
          });
        }
@@ -182,7 +179,7 @@ export default function (app) {
        else if (data.type === "end_of_turn") {
          console.log("🟢 Sending turnComplete to Gemini");
      
-         session.sendClientContent({
+         await session.sendClientContent({
            turnComplete: true
          });
        }
