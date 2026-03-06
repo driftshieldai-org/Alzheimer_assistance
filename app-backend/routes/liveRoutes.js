@@ -66,7 +66,8 @@ export default function (app) {
 
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_REGION || "us-central1";
-    const model = "gemini-1.5-flash"; // Use a more generally available and stable model
+    // Using gemini-1.0-pro as it's widely available and avoids the 1008 connection errors you were seeing.
+    const model = "gemini-1.0-pro"; 
     //const model = "gemini-live-2.5-flash-native-audio";
 
     console.log(`projectId: ${projectId} location: ${location}`);
@@ -121,7 +122,7 @@ export default function (app) {
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
      onclose: (e) => { 
-       console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`);
+       console.log(🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"});
        if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
@@ -129,26 +130,21 @@ export default function (app) {
       // 4. Send Photos + Dates as Context
       if (referencePhotos.length > 0) {
         console.log("Sending reference photos to Gemini...");
-        
-        // Send a system note first
-        await session.sendClientContent({
-            turns: [{ role: "user", parts: [{ text: `System Note: Here are reference photos of my memories. Use them as context. The user's name is ${userName}.` }] }],
-            turnComplete: false
+
+        // Consolidate all reference photos into a single message for reliability.
+        const initialParts = [];
+        referencePhotos.forEach(photo => {
+            initialParts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
+            initialParts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
         });
 
-        // Send each photo individually to avoid large message sizes
-        for (const photo of referencePhotos) {
-            await session.sendClientContent({
-                turns: [{
-                    role: "user",
-                    parts: [
-                        { text: `Memory - Description: ${photo.description}, Date: ${photo.date}` },
-                        { inlineData: { mimeType: photo.mimeType, data: photo.data } }
-                    ]
-                }],
-                turnComplete: false // Keep the turn open
-            });
-        }
+        await session.sendClientContent({
+            turns: [{
+                role: "user",
+                parts: initialParts
+            }],
+            turnComplete: false // CRITICAL: Keep turn open for live video/audio
+        });
         console.log("✅ Reference photos sent successfully.");
       } else {
         await session.sendClientContent({
@@ -171,6 +167,7 @@ export default function (app) {
         
         // Forward User's Microphone Audio chunks
         else if (data.type === "audio") {
+          console.log("🎤 Received audio chunk from client."); // Helps confirm audio is streaming
           await session.sendRealtimeInput({ media: {
             mimeType: "audio/pcm;rate=16000",
             data: data.audioBase64
