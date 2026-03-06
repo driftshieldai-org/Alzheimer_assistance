@@ -66,8 +66,8 @@ export default function (app) {
 
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_REGION || "us-central1";
-    const model = "gemini-1.5-flash-preview-0514"; // Use a current, valid model
-    //const model = "gemini-live-2.5-flash-native-audio";
+    //const model = "gemini-1.5-flash-preview-0514"; // Use a current, valid model
+    const model = "gemini-live-2.5-flash-native-audio";
 
     console.log(`projectId: ${projectId} location: ${location}`);
     
