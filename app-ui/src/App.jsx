@@ -225,20 +225,19 @@ export default function MemoryMateApp() {
     wsRef.current.onmessage = (event) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === "interrupted") {
-         clearAudioQueue();
-         return;
+      if (data.type === "audioResponse") {
+        if (data.description) setAiTextResponse(data.description);
+        if (data.audioBase64) playPcmAudio(data.audioBase64);
+      } else if (data.type === "interrupted") {
+        clearAudioQueue();
+      } else if (data.error) {
+        setLiveVideoError(`AI Error: ${data.error}`);
       }
-      
-      if (data.error) {
-        setLiveVideoError(`AI Message Error: ${data.error}`);
-      } else {
-        if (data.description) {
-          setAiTextResponse(data.description);
-        }
-        if (data.audioBase64) {
-          playPcmAudio(data.audioBase64);
-        }
+
+      // This should be outside the conditional logic to ensure it always runs
+      // after a message is processed, preventing the UI from getting stuck.
+      // We can add a check to only set it if it's currently true.
+      if (processingFrame) {
         setProcessingFrame(false);
       }
     };

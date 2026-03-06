@@ -66,8 +66,8 @@ export default function (app) {
 
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_REGION || "us-central1";
-    //const model = "gemini-1.5-flash-preview-0514"; // Use a current, valid model
-    const model = "gemini-live-2.5-flash-native-audio";
+    const model = "gemini-1.5-flash"; // Use a more generally available and stable model
+    //const model = "gemini-live-2.5-flash-native-audio";
 
     console.log(`projectId: ${projectId} location: ${location}`);
     
@@ -98,19 +98,30 @@ export default function (app) {
 
       // Forward audio back to frontend
       if (message.serverContent?.modelTurn?.parts) {
-      
-       for (const part of message.serverContent.modelTurn.parts) {
-        if (part.inlineData?.data && ws.readyState === WebSocket.OPEN) {
-         const mimeType = part.inlineData.mimeType || "audio/pcm;rate=24000";
-         console.log("🔊 Model audio mimeType:", mimeType);
-         ws.send(JSON.stringify({ type: "audio", audioBase64: part.inlineData.data }));
+        let generatedText = '';
+        let generatedAudioBase64 = '';
+
+        for (const part of message.serverContent.modelTurn.parts) {
+          if (part.text) {
+            generatedText += part.text;
+          }
+          if (part.inlineData?.data) {
+            generatedAudioBase64 = part.inlineData.data;
+          }
         }
-       }
+
+        if ((generatedText || generatedAudioBase64) && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "audioResponse", // Use a consistent type
+            description: generatedText,
+            audioBase64: generatedAudioBase64
+          }));
+        }
       }
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
-     onclose: (e) => { 
-       console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason || "None"}`);
+     onclose: () => { 
+       console.log(`🔴 Gemini WS Closed.`);
        if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
