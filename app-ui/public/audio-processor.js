@@ -26,8 +26,9 @@ class AudioProcessor extends AudioWorkletProcessor {
         this.buffer[this.bytesWritten++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
 
         if (this.bytesWritten >= this.bufferSize) {
-          // Send RAW audio array to the main thread
-          this.port.postMessage({ type: 'audio_data', pcmData: this.buffer.slice() });
+          // Send raw ArrayBuffer safely across the thread
+          const bufferCopy = new Int16Array(this.buffer);
+          this.port.postMessage({ type: 'audio_data', pcmData: bufferCopy.buffer });
           this.bytesWritten = 0;
         }
       }
