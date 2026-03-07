@@ -101,7 +101,7 @@ export default function (app) {
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
      onclose: (e) => { 
-      console.log(`🔴 Gemini WS Closed.`);
+      console.log(`🔴 Gemini WS Closed. Code: ${code}, Reason: ${reason}`);
       if (ws.readyState === WebSocket.OPEN) ws.close(); 
      }
     }
