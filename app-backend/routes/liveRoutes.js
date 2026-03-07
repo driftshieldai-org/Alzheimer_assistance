@@ -67,8 +67,8 @@ export default function (app) {
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_REGION || "us-central1";
     // Using gemini-1.0-pro as it's widely available and avoids the 1008 connection errors you were seeing.
-    const model = "gemini-1.0-pro"; 
-    //const model = "gemini-live-2.5-flash-native-audio";
+    //const model = "gemini-1.0-pro"; 
+    const model = "gemini-live-2.5-flash-native-audio";
 
     console.log(`projectId: ${projectId} location: ${location}`);
     
@@ -121,8 +121,8 @@ export default function (app) {
       }
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
-     onclose: () => { 
-       console.log(`🔴 Gemini WS Closed.`);
+     onclose: (e ) => { 
+       console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
        if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
@@ -130,7 +130,7 @@ export default function (app) {
       // 4. Send Photos + Dates as Context
       if (referencePhotos.length > 0) {
         console.log("Sending reference photos to Gemini...");
-
+       
         // Consolidate all reference photos into a single message for reliability.
         const initialParts = [];
         referencePhotos.forEach(photo => {
@@ -161,7 +161,7 @@ export default function (app) {
         if (data.type === "frame") {
           await session.sendRealtimeInput([{
             mimeType: "image/jpeg",
-            data: data.frameBase64
+            data: data.frame
           }]);
         } 
         
@@ -170,27 +170,9 @@ export default function (app) {
           console.log("🎤 Received audio chunk from client."); // Helps confirm audio is streaming
           await session.sendRealtimeInput([{
             mimeType: "audio/pcm;rate=16000",
-            data: data.audioBase64
+            data: data.audio
           }]);
         }
-
-        // ---- Speech Start (Interrupt AI) ----
-       else if (data.type === "speech_start") {
-         console.log("🔴 User interruption detected");
-     
-         await session.sendClientContent({
-           turnComplete: false
-         });
-       }
-     
-       // ---- End of Turn ----
-       else if (data.type === "end_of_turn") {
-         console.log("🟢 Sending turnComplete to Gemini");
-     
-         await session.sendClientContent({
-           turnComplete: true
-         });
-       }
       });
 
       ws.on('close', () => {
