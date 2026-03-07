@@ -206,6 +206,29 @@ export default function MemoryMateApp() {
      wsRef.current.send(JSON.stringify({ type: "speech_start" }));
     }
     else if (type === 'end_of_turn') {
+     console.log("🛑 Speech ended. Injecting true silence.");
+     
+     try {
+       // Inject 1 second of absolute mathematical silence (16,000 samples of zero)
+       const silence = new Int16Array(16000); 
+       const buffer = new ArrayBuffer(silence.length * 2);
+       const view = new DataView(buffer);
+       for (let i = 0; i < silence.length; i++) {
+        view.setInt16(i * 2, 0, true); // Zero represents absolute silence
+       }
+       
+       const bytes = new Uint8Array(buffer);
+       let binary = '';
+       for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+       }
+       
+       // Send the silence to Google's server to trip the VAD
+       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: window.btoa(binary) }));
+     } catch (err) {
+       console.error("Silence injection failed", err);
+     }
+
      wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
     }
    };
