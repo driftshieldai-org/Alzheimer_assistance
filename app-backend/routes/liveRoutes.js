@@ -67,10 +67,8 @@ export default function (app) {
         model: model,
         config: {
           systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } }
-          }
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } }
         },
         callbacks: {
           onopen: () => {
@@ -128,6 +126,7 @@ export default function (app) {
       
       // 5. Forward Stream (Uses your working methods)
       ws.on('message', async (msg) => {
+        try {
         const data = JSON.parse(msg);
 
         if (data.type === "frame") {
@@ -145,6 +144,9 @@ export default function (app) {
             mimeType: "audio/pcm;rate=16000",
             data: data.audioBase64
           }]);
+        }
+          } catch (err) {
+          console.error("⚠️ Stream Error:", err.message);
         }
       });
 
