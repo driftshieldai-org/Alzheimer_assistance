@@ -42,54 +42,54 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # 3. Build System Instructions (Inject GCS URLs directly!)
         # We don't download the images. We just tell Gemini where they are.
-# 3. Build System Instructions (TEXT ONLY!)
-    system_parts = [
-      types.Part.from_text(text=f"You are MemoryMate. User: {user_name}."),
-      types.Part.from_text(text="1. Greet the user warmly.\n2. Listen to their voice and watch the video stream.\n3. Match their video against the stored memories provided in the first message.")
-    ]
-
-    # Collect photos to send in the FIRST user turn (Not system instructions)
-    initial_prompt_parts = []
-    photos_ref = db.collection('users').document(user_id).collection('photos').stream()
-    for doc in photos_ref:
-      data = doc.to_dict()
-      if 'filename' in data:
-        # Add Description
-        initial_prompt_parts.append(types.Part.from_text(
-          text=f"\nMemory: {data.get('description', 'Unknown')} on {data.get('photoDate', 'Unknown')}"
-        ))
-        # Add Image URL 
-        initial_prompt_parts.append(types.Part.from_uri(
-          file_uri=f"gs://{BUCKET_NAME}/{data['filename']}",
-          mime_type="image/jpeg"
-        ))
-
-    # 4. Configure Gemini
-    MODEL_ID = "gemini-live-2.5-flash-native-audio" 
-     
-    config = types.LiveConnectConfig(
-      response_modalities=["AUDIO"],
-      speech_config=types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-          prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
+        # 3. Build System Instructions (TEXT ONLY!)
+        system_parts = [
+          types.Part.from_text(text=f"You are MemoryMate. User: {user_name}."),
+          types.Part.from_text(text="1. Greet the user warmly.\n2. Listen to their voice and watch the video stream.\n3. Match their video against the stored memories provided in the first message.")
+        ]
+    
+        # Collect photos to send in the FIRST user turn (Not system instructions)
+        initial_prompt_parts = []
+        photos_ref = db.collection('users').document(user_id).collection('photos').stream()
+        for doc in photos_ref:
+          data = doc.to_dict()
+          if 'filename' in data:
+            # Add Description
+            initial_prompt_parts.append(types.Part.from_text(
+              text=f"\nMemory: {data.get('description', 'Unknown')} on {data.get('photoDate', 'Unknown')}"
+            ))
+            # Add Image URL 
+            initial_prompt_parts.append(types.Part.from_uri(
+              file_uri=f"gs://{BUCKET_NAME}/{data['filename']}",
+              mime_type="image/jpeg"
+            ))
+    
+        # 4. Configure Gemini
+        MODEL_ID = "gemini-live-2.5-flash-native-audio" 
+         
+        config = types.LiveConnectConfig(
+          response_modalities=["AUDIO"],
+          speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+              prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
+            )
+          ),
+          # System instructions are now safely TEXT ONLY
+          system_instruction=types.Content(parts=system_parts)
         )
-      ),
-      # System instructions are now safely TEXT ONLY
-      system_instruction=types.Content(parts=system_parts)
-    )
-
-    # 5. Connect Loop
-    async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
-      print(f"🟢 Connected to {MODEL_ID}")
-
-      # Add the spoken greeting to the end of our memory payload
-      initial_prompt_parts.append(types.Part.from_text(
-          text=f"Hello, I am {user_name}. Please say hello and acknowledge you have received my memories."
-      ))
-
-      # Send the images + greeting as the very first turn!
-      await session.send(input=initial_prompt_parts, end_of_turn=True)
-      print("✅ Ready. Mode: LISTENING")
+    
+        # 5. Connect Loop
+        async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
+            print(f"🟢 Connected to {MODEL_ID}")
+            
+            # Add the spoken greeting to the end of our memory payload
+            initial_prompt_parts.append(types.Part.from_text(
+                text=f"Hello, I am {user_name}. Please say hello and acknowledge you have received my memories."
+            ))
+            
+            # Send the images + greeting as the very first turn!
+            await session.send(input=initial_prompt_parts, end_of_turn=True)
+            print("✅ Ready. Mode: LISTENING")
 
             # TASK: Receive from Gemini
             async def receive_loop():
