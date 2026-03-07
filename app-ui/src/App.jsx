@@ -163,78 +163,35 @@ export default function MemoryMateApp() {
       const source = audioCtx.createMediaStreamSource(stream);
 
       // Handle messages from the worklet (VAD events, audio data)
- let audioBuffer = [];
+      processorNode.port.onmessage = (event) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-   processorNode.port.onmessage = (event) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        const { type, audioBase64 } = event.data;
 
-    const { type, audioChunk } = event.data;
+        switch (type) {
+          case 'speech_start':
+            console.log("🎤 Speech started (from worklet)");
+            clearAudioQueue(); // Interrupt AI speech
+            wsRef.current.send(JSON.stringify({ type: "speech_start" }));
+            break;
+          case 'audio_data':
+            // Directly forward the base64 data from the worklet
+            if (audioBase64) {
+              wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+            }
+            break;
+          case 'end_of_turn':
+            console.log("🛑 End of turn detected (from worklet)");
+            wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
+            break;
+          default:
+            break;
+        }
+      };
 
-    if (type === 'audio_data' && audioChunk) {
-     try {
-      // AMPLIFY THE AUDIO BY 500% SO GEMINI'S VAD CAN HEAR IT
-      const GAIN = 5.0; 
-      for (let i = 0; i < audioChunk.length; i++) {
-       let s = Math.max(-1, Math.min(1, audioChunk[i] * GAIN));
-       audioBuffer.push(s < 0 ? s * 0x8000 : s * 0x7FFF);
-      }
-      
-      if (audioBuffer.length >= 4096) {
-       const bufferToSend = new Int16Array(audioBuffer);
-       audioBuffer = []; 
-       
-       const buffer = new ArrayBuffer(bufferToSend.length * 2);
-       const view = new DataView(buffer);
-       for (let i = 0; i < bufferToSend.length; i++) {
-        view.setInt16(i * 2, bufferToSend[i], true); 
-       }
-       
-       const bytes = new Uint8Array(buffer);
-       let binary = '';
-       for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-       }
-       
-       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: window.btoa(binary) }));
-      }
-     } catch (err) {
-      console.error("Audio encoding failed:", err);
-     }
-    }
-    else if (type === 'speech_start') {
-     clearAudioQueue(); 
-     wsRef.current.send(JSON.stringify({ type: "speech_start" }));
-    }
-    else if (type === 'end_of_turn') {
-     console.log("🛑 Speech ended. Injecting true silence.");
-     
-     try {
-       // Inject 1 second of absolute mathematical silence (16,000 samples of zero)
-       const silence = new Int16Array(16000); 
-       const buffer = new ArrayBuffer(silence.length * 2);
-       const view = new DataView(buffer);
-       for (let i = 0; i < silence.length; i++) {
-        view.setInt16(i * 2, 0, true); // Zero represents absolute silence
-       }
-       
-       const bytes = new Uint8Array(buffer);
-       let binary = '';
-       for (let i = 0; i < bytes.length; i++) {
-        binary += String.fromCharCode(bytes[i]);
-       }
-       
-       // Send the silence to Google's server to trip the VAD
-       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: window.btoa(binary) }));
-     } catch (err) {
-       console.error("Silence injection failed", err);
-     }
-
-     wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
-    }
-   };
-
-  source.connect(processorNode);
-      processorNode.connect(audioCtx.destination); // Connect to destination to hear audio (optional)
+      source.connect(processorNode);
+      // We don't need to connect to destination unless we want to hear the user's mic input
+      // processorNode.connect(audioCtx.destination); 
 
     } catch (err) {
       console.error("Microphone access denied or failed", err);

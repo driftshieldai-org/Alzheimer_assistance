@@ -3,7 +3,7 @@ import WebSocket from 'ws';
 import { Firestore } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
 import jwt from 'jsonwebtoken';
-import { GoogleGenAI } from '@google/genai'; 
+import { GoogleGenAI, Modality } from '@google/genai'; 
 
 export default function (app) {
  const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID });
@@ -47,56 +47,77 @@ export default function (app) {
     }
    }
 
+  console.log(`Loaded ${referencePhotos.length} reference photos`);
+  
    const SYSTEM_INSTRUCTION = `
-   You are MemoryMate, a polite AI assistant. The user's name is ${userName}.
-   Instructions:
-   1. Converse naturally based on what the user says and what you see.
-   2. Match the environment/people against reference photos. If matched, mention the DATE and DESCRIPTION.
-   3. Keep responses conversational and short.
+    You are a polite, helpful AI assistant named MemoryMate with a soft, calming tone.
+    The user's name is ${userName}.
+    Instructions:
+    1. Listen to the user's voice and observe the video stream.
+    2. When the user asks you a question or speaks to you, answer naturally based on what you see in the video.
+    3. Match against the provided reference photos:
+       - If a person or place MATCHES a reference photo, politely inform the user.
+       - Crucially, you MUST mention the DATE and DESCRIPTION stored with the photo. For example: "You might have visited this place on [Date]" or "You have met with [Description] on [Date]."
+    4. If it's a NEW scene (does NOT match reference photos):
+       - First, check if it matches a famous world landmark or well-known place. If yes, respond accordingly with a friendly detail.
+       - If it is NOT a famous place, analyze the background and describe the environment contextually (e.g., "It looks like you are in your kitchen", "You seem to be in a bedroom").
+    5. Keep your responses conversational, short, and natural.
    `;
 
-   const projectId = process.env.GCP_PROJECT_ID;
-   const location = process.env.GCP_REGION || "us-central1";
-   
-   // BACK TO THE WORKING NATIVE AUDIO MODEL
-   const model = "gemini-live-2.5-flash-native-audio";
+    const projectId = process.env.GCP_PROJECT_ID;
+    const location = process.env.GCP_REGION || "us-central1";
+    // Using gemini-1.0-pro as it's widely available and avoids the 1008 connection errors you were seeing.
+    const model = "gemini-1.0-pro"; 
+    //const model = "gemini-live-2.5-flash-native-audio";
 
-   const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location });
+    console.log(`projectId: ${projectId} location: ${location}`);
+    
+   const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location || "us-central1" });
    
    const session = await ai.live.connect({
     model: model, 
     config: {
-     responseModalities: ["AUDIO"], 
+     responseModalities: [Modality.AUDIO],
      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } },
      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }
     },
     callbacks: {
      onopen: () => console.log("🟢 Connected to Gemini Live API"),
      onmessage: (message) => {
-      if (message.setupComplete) return;
-
-      if (message.serverContent?.interrupted) {
-       console.log("🛑 Model interrupted automatically");
+      if (message.setupComplete) {
+       console.log("✅ Gemini Live API Setup Complete!"); 
+       return;
       }
 
+      // Handle Model interruption (User started speaking)
+      if (message.serverContent?.interrupted) {
+       if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "interrupted" }));
+       }
+      }
+
+
+      // Forward audio back to frontend
       if (message.serverContent?.modelTurn?.parts) {
-       let generatedText = '';
-       let generatedAudioBase64 = '';
+        let generatedText = '';
+        let generatedAudioBase64 = '';
 
-       for (const part of message.serverContent.modelTurn.parts) {
-        if (part.text) generatedText += part.text;
-        if (part.inlineData?.data) generatedAudioBase64 = part.inlineData.data;
-       }
+        for (const part of message.serverContent.modelTurn.parts) {
+          if (part.text) {
+            generatedText += part.text;
+          }
+          if (part.inlineData?.data) {
+            generatedAudioBase64 = part.inlineData.data;
+          }
+        }
 
-       if (generatedText) console.log(`🤖 AI Text: ${generatedText}`);
-
-       if ((generatedText || generatedAudioBase64) && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-         type: "audioResponse",
-         description: generatedText,
-         audioBase64: generatedAudioBase64
-        }));
-       }
+        if ((generatedText || generatedAudioBase64) && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "audioResponse", // Use a consistent type
+            description: generatedText,
+            audioBase64: generatedAudioBase64
+          }));
+        }
       }
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
@@ -107,78 +128,82 @@ export default function (app) {
     }
    });
 
-   // Setup 1: Context
-   if (referencePhotos.length > 0) {
-    await session.sendClientContent({
-      turns: [{ role: "user", parts: [{ text: `System Note: Here are reference photos of my memories.` }] }],
-      turnComplete: false
-    });
+      // 4. Send Photos + Dates as Context
+      if (referencePhotos.length > 0) {
+        console.log("Sending reference photos to Gemini...");
 
-    for (const photo of referencePhotos) {
-     await session.sendClientContent({
-       turns: [{ role: "user", parts: [
-         { text: `Memory - Description: ${photo.description}, Date: ${photo.date}` },
-         { inlineData: { mimeType: photo.mimeType, data: photo.data } }
-       ]}],
-       turnComplete: false
-     });
-    }
-   }
-
-   // Setup 2: Trigger AI Greeting
-   await session.sendClientContent({
-     turns: [{ role: "user", parts: [{ text: `Hello, I am ${userName}. I am turning on my camera and microphone now. Let me know when you are ready.` }] }],
-     turnComplete: true 
-   });
-
-   // Store the most recent video frame in memory
-   let latestVideoFrame = null;
-
-   // Stream Handling
-   ws.on('message', async (msg) => {
-    const data = JSON.parse(msg);
-
-    try {
-     if (data.type === "frame") {
-      latestVideoFrame = data.frameBase64;
-      await session.sendRealtimeInput([{ mimeType: "image/jpeg", data: data.frameBase64 }]);
-     } 
-     else if (data.type === "audio") {
-      await session.sendRealtimeInput([{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }]);
-     }
-     else if (data.type === "speech_start") {
-      console.log("🎤 User started speaking.");
-     }
-     else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Closing turn with Image Frame to preserve audio buffer...");
-      
-      // THE FIX: We use the Video Frame to close the turn!
-      // This satisfies the SDK validation, avoids text-overrides, and forces the AI to process your voice!
-      if (latestVideoFrame) {
-        await session.sendClientContent({
-          turns: [{ 
-            role: "user", 
-            parts: [{ inlineData: { mimeType: "image/jpeg", data: latestVideoFrame } }] 
-          }],
-          turnComplete: true
+        // Consolidate all reference photos into a single message for reliability.
+        const initialParts = [];
+        referencePhotos.forEach(photo => {
+            initialParts.push({ text: `Memory - Description: ${photo.description}, Date: ${photo.date}` });
+            initialParts.push({ inlineData: { mimeType: photo.mimeType, data: photo.data } });
         });
-      } else {
-        // Fallback just in case the camera hasn't sent a frame yet
+
         await session.sendClientContent({
-          turns: [{ role: "user", parts: [{ text: " " }] }],
-          turnComplete: true
+            turns: [{
+                role: "user",
+                parts: initialParts
+            }],
+            turnComplete: false // CRITICAL: Keep turn open for live video/audio
+        });
+        console.log("✅ Reference photos sent successfully.");
+      } else {
+        await session.sendClientContent({
+          turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am ready.` }] }],
+          turnComplete: false // CRITICAL: Set to false to keep the conversation going
         });
       }
-     }
-    } catch (sendErr) {
-      console.error("Error sending to Gemini:", sendErr);
-    }
-   });
-   
 
-  } catch (error) {
-   console.error("Live Stream Error:", error);
-   if (ws.readyState === WebSocket.OPEN) ws.close(1011, "Server error");
-  }
+      // 5. Forward BOTH Real-time Video Frames and Real-time Microphone Audio
+      ws.on('message', async (msg) => {
+        const data = JSON.parse(msg);
+
+        // Forward Video frame
+        if (data.type === "frame") {
+          await session.sendRealtimeInput([{
+            mimeType: "image/jpeg",
+            data: data.frameBase64
+          }]);
+        } 
+        
+        // Forward User's Microphone Audio chunks
+        else if (data.type === "audio") {
+          console.log("🎤 Received audio chunk from client."); // Helps confirm audio is streaming
+          await session.sendRealtimeInput([{
+            mimeType: "audio/pcm;rate=16000",
+            data: data.audioBase64
+          }]);
+        }
+
+        // ---- Speech Start (Interrupt AI) ----
+       else if (data.type === "speech_start") {
+         console.log("🔴 User interruption detected");
+     
+         await session.sendClientContent({
+           turnComplete: false
+         });
+       }
+     
+       // ---- End of Turn ----
+       else if (data.type === "end_of_turn") {
+         console.log("🟢 Sending turnComplete to Gemini");
+     
+         await session.sendClientContent({
+           turnComplete: true
+         });
+       }
+      });
+
+      ws.on('close', () => {
+        console.log("Client WS closed connection.");
+      });
+
+    } catch (error) {
+      console.error("Live Stream Error:", error);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1011, "Server error");
+      }
+    }
+
  });
 }
