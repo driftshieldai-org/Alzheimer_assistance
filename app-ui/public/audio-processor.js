@@ -1,88 +1,107 @@
 class AudioProcessor extends AudioWorkletProcessor {
+
   constructor() {
-    super();
-    this.isSpeaking = false;
-    this.silenceFrames = 0;
-    this.speechFrames = 0;
-    this.vadThreshold = 0.05;
-    
-    // Audio buffer and settings
-    this.audioBuffer = [];
-    this.bufferSize = 4096; // Send data when buffer reaches this size
-    this.gain = 5.0; // Audio amplification
-    
-    this.port.onmessage = (event) => {
-      if (event.data.type === 'stop') {
-        // Clean up if needed, though not strictly necessary here
-      }
-    };
+    super()
+
+    this.buffer = []
+    this.bufferSize = 1600
+    this.speeching = false
+    this.silenceFrames = 0
+    this.SILENCE_LIMIT = 15
   }
 
-  // Helper to convert Float32Array to Base64 encoded PCM16
-  float32To16BitPCMBase64(buffer) {
-    let pcm16Buffer = new ArrayBuffer(buffer.length * 2);
-    let view = new DataView(pcm16Buffer);
-    for (let i = 0; i < buffer.length; i++) {
-      // Amplify and clamp
-      let s = Math.max(-1, Math.min(1, buffer[i] * this.gain));
-      // Convert to 16-bit integer
-      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  floatTo16BitPCM(float32Array) {
+
+    const buffer = new ArrayBuffer(float32Array.length * 2)
+    const view = new DataView(buffer)
+
+    let offset = 0
+
+    for (let i = 0; i < float32Array.length; i++, offset += 2) {
+
+      let s = Math.max(-1, Math.min(1, float32Array[i]))
+
+      view.setInt16(
+        offset,
+        s < 0 ? s * 0x8000 : s * 0x7fff,
+        true
+      )
+
     }
-    
-    // Convert buffer to binary string then to base64
-    let binary = '';
-    let bytes = new Uint8Array(pcm16Buffer);
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
+
+    return buffer
   }
 
-  process(inputs, outputs, parameters) {
-    const input = inputs[0];
-    if (input && input.length > 0) {
-      const channelData = input[0];
-      
-      // --- VAD Logic ---
-      let maxVol = 0;
-      for (let i = 0; i < channelData.length; i++) {
-        if (Math.abs(channelData[i]) > maxVol) {
-          maxVol = Math.abs(channelData[i]);
-        }
-      }
+  base64ArrayBuffer(arrayBuffer) {
 
-      if (maxVol > this.vadThreshold) {
-        this.silenceFrames = 0;
-        this.speechFrames++;
-        if (!this.isSpeaking && this.speechFrames > 10) { // Start speech after 10 consecutive speech frames
-          this.isSpeaking = true;
-          this.port.postMessage({ type: 'speech_start' });
-        }
-      } else {
-        this.speechFrames = 0;
-        this.silenceFrames++;
-        if (this.isSpeaking && this.silenceFrames > 125) { // End turn after 125 consecutive silence frames
-          this.isSpeaking = false;
-          this.port.postMessage({ type: 'end_of_turn' });
-        }
-      }
+    let binary = ""
+    const bytes = new Uint8Array(arrayBuffer)
 
-      // --- Buffering and Sending Audio Data ---
-      this.audioBuffer.push(...channelData);
-
-      while (this.audioBuffer.length >= this.bufferSize) {
-        const chunkToSend = this.audioBuffer.slice(0, this.bufferSize);
-        this.audioBuffer = this.audioBuffer.slice(this.bufferSize);
-
-        const audioBase64 = this.float32To16BitPCMBase64(chunkToSend);
-        
-        this.port.postMessage({ 
-          type: 'audio_data', 
-          audioBase64: audioBase64
-        });
-      }
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i])
     }
-    return true; 
+
+    return btoa(binary)
+  }
+
+  process(inputs) {
+
+    const input = inputs[0]
+
+    if (!input || input.length === 0) return true
+
+    const channelData = input[0]
+
+    let energy = 0
+
+    for (let i = 0; i < channelData.length; i++) {
+      energy += Math.abs(channelData[i])
+    }
+
+    energy = energy / channelData.length
+
+    if (energy > 0.01) {
+
+      this.silenceFrames = 0
+
+      if (!this.speeching) {
+        this.speeching = true
+        this.port.postMessage({ type: "speech_start" })
+      }
+
+    } else {
+
+      this.silenceFrames++
+
+      if (this.silenceFrames > this.SILENCE_LIMIT && this.speeching) {
+
+        this.speeching = false
+
+        this.port.postMessage({ type: "end_of_turn" })
+      }
+
+    }
+
+    this.buffer.push(...channelData)
+
+    if (this.buffer.length >= this.bufferSize) {
+
+      const floatArray = new Float32Array(this.buffer)
+
+      const pcmBuffer = this.floatTo16BitPCM(floatArray)
+
+      const base64 = this.base64ArrayBuffer(pcmBuffer)
+
+      this.port.postMessage({
+        type: "audio_data",
+        audioBase64: base64
+      })
+
+      this.buffer = []
+    }
+
+    return true
   }
 }
-registerProcessor('audio-processor', AudioProcessor);
+
+registerProcessor("audio-processor", AudioProcessor)
