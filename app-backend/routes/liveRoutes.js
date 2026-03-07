@@ -16,8 +16,6 @@ export default function (app) {
   }
 
   app.ws('/api/live/ws/live/process-stream', async (ws, req) => {
-    console.log("🔌 Client requested WebSocket connection...");
-    
     const token = req.query.token;
     if (!token) { ws.close(1008, "token required"); return; }
 
@@ -26,12 +24,11 @@ export default function (app) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       userId = decoded.userId;
     } catch (err) {
-      console.error("❌ Invalid Token");
       ws.close(1008, "Invalid token"); return;
     }
 
     try {
-      // 1. Load User Context
+      // 1. Load User & Photos
       let userName = userId;
       const userDoc = await db.collection('users').doc(userId).get();
       if (userDoc.exists) userName = userDoc.data().name || userId;
@@ -51,21 +48,20 @@ export default function (app) {
         }
       }
 
-      // 2. Initialize Gemini (USE THIS EXACT MODEL)
+      // 2. Connect to Gemini Live
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_REGION || "us-central1";
-      const model = "gemini-live-2.5-flash-native-audio"; // <--- THIS IS THE CORRECT VERTEX ID
-
-      console.log(`🚀 Connecting to Gemini Live: ${model} in ${location}`);
       
+      // Using the model you confirmed works for you
+      const model = "gemini-live-2.5-flash-native-audio"; 
+
       const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location });
 
       const SYSTEM_INSTRUCTION = `
       You are MemoryMate. User: ${userName}.
-      1. Briefly greet the user.
-      2. Listen to the audio and watch the video stream continuously.
-      3. If the user asks a question, answer it.
-      4. If you see a reference photo match in the video, mention the Date/Description.
+      1. Greet the user.
+      2. Listen to the user's voice and watch the video stream.
+      3. If a photo matches the video, mention the Date/Description.
       `;
 
       const session = await ai.live.connect({
@@ -79,83 +75,74 @@ export default function (app) {
         }
       });
 
-      console.log("🟢 Connected to Gemini Live API");
+      console.log(`🟢 Connected to ${model}`);
 
-      // 3. Receive Loop (Listening to AI)
+      // 3. Receive Loop
       (async () => {
         try {
           for await (const message of session.receive()) {
             if (message.serverContent?.interrupted && ws.readyState === WebSocket.OPEN) {
-              console.log("⚡ AI Interrupted by User Voice");
               ws.send(JSON.stringify({ type: "interrupted" }));
             }
-
             const turn = message.serverContent?.modelTurn;
             if (turn?.parts) {
               for (const part of turn.parts) {
                 if (part.inlineData?.data && ws.readyState === WebSocket.OPEN) {
-                  // Forward Audio
                   ws.send(JSON.stringify({
                     type: "audioResponse",
                     audioBase64: part.inlineData.data,
-                    description: part.text || "" 
+                    description: part.text || ""
                   }));
                 } else if (part.text && ws.readyState === WebSocket.OPEN) {
-                  // Forward Text
                   ws.send(JSON.stringify({ type: "audioResponse", description: part.text }));
                 }
               }
             }
           }
         } catch (err) {
-          console.error("🔴 Gemini Receive Error:", err);
+          console.error("Gemini Receive Error:", err);
         }
       })();
 
-      // 4. Send Initial Context
+      // 4. Send Context (The Critical Fix)
       const initialParts = referencePhotos.flatMap(photo => [
         { text: `Memory: ${photo.description} on ${photo.date}` },
         { inlineData: { mimeType: photo.mimeType, data: photo.data } }
       ]);
       initialParts.push({ text: `Hello, I am ${userName}.` });
 
-      await session.send({
-        clientContent: {
-          turns: [{ role: "user", parts: initialParts }],
-          turnComplete: true 
-        }
+      // ✅ FIXED: Using sendClientContent (Valid for your SDK) 
+      // ✅ FIXED: turnComplete: TRUE (Stops the silence, enables mic input)
+      await session.sendClientContent({
+        turns: [{ role: "user", parts: initialParts }],
+        turnComplete: true 
       });
-      console.log("✅ Initial Context Sent. Waiting for Real-time Input...");
 
-      // 5. Forward Audio/Video (WITH DEBUG LOGS)
-      let audioChunksCount = 0;
-      
+      console.log("✅ Context sent. Mode switched to: LISTENING.");
+
+      // 5. Forward Stream
       ws.on('message', async (msg) => {
         const data = JSON.parse(msg);
-        
+
+        // ✅ FIXED: Using sendRealtimeInput (Valid for your SDK)
         if (data.type === "frame") {
-          // Send Video Frame
-          await session.send({
-            realtimeInput: { mediaChunks: [{ mimeType: "image/jpeg", data: data.frameBase64 }] }
-          });
+          await session.sendRealtimeInput([{
+            mimeType: "image/jpeg",
+            data: data.frameBase64
+          }]);
         } 
         else if (data.type === "audio") {
-          // Send Audio Chunk
-          audioChunksCount++;
-          if (audioChunksCount % 50 === 0) {
-             console.log(`🎤 Streaming Audio... (${audioChunksCount} chunks sent)`);
-          }
-          
-          await session.send({
-            realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }] }
-          });
+          await session.sendRealtimeInput([{
+            mimeType: "audio/pcm;rate=16000",
+            data: data.audioBase64
+          }]);
         }
       });
 
-      ws.on('close', () => console.log("❌ Client WS closed."));
+      ws.on('close', () => console.log("Client WS closed."));
 
     } catch (error) {
-      console.error("🔥 Critical Setup Error:", error);
+      console.error("Setup Error:", error);
       if (ws.readyState === WebSocket.OPEN) ws.close(1011, "Server Error");
     }
   });
