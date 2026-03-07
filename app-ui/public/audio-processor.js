@@ -2,15 +2,18 @@ class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.audioBuffer = [];
-    this.bufferSize = 4096; // Send chunk size
-    this.gain = 2.0; // Lowered slightly to prevent microphone clipping
+    this.bufferSize = 4096; 
+    this.gain = 2.5; // Boost volume so Gemini hears you
   }
 
+  // Convert Float32 to Int16 PCM Base64
   float32To16BitPCMBase64(buffer) {
     let pcm16Buffer = new ArrayBuffer(buffer.length * 2);
     let view = new DataView(pcm16Buffer);
     for (let i = 0; i < buffer.length; i++) {
+      // Apply gain and clamp between -1 and 1
       let s = Math.max(-1, Math.min(1, buffer[i] * this.gain));
+      // Convert to 16-bit PCM
       view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
     }
     
@@ -27,7 +30,7 @@ class AudioProcessor extends AudioWorkletProcessor {
     if (input && input.length > 0) {
       const channelData = input[0];
       
-      // Simply buffer and send continuously
+      // STREAMING LOGIC: Just buffer and send. No VAD checks.
       this.audioBuffer.push(...channelData);
 
       while (this.audioBuffer.length >= this.bufferSize) {
@@ -45,4 +48,5 @@ class AudioProcessor extends AudioWorkletProcessor {
     return true; 
   }
 }
+
 registerProcessor('audio-processor', AudioProcessor);
