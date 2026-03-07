@@ -108,6 +108,10 @@ export default function (app) {
         }
        }
 
+       // VISIBILITY LOGS: See exactly what the AI is thinking/sending
+       if (generatedText) console.log(`🤖 AI: ${generatedText}`);
+       if (generatedAudioBase64) console.log(`🔊 AI sending audio chunk...`);
+
        if ((generatedText || generatedAudioBase64) && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
          type: "audioResponse",
@@ -184,6 +188,18 @@ export default function (app) {
      }
      else if (data.type === "end_of_turn") {
       console.log("🤫 User stopped speaking. Waiting for Gemini native response...");
+      try {
+        // Tell Gemini to process the audio buffer and reply!
+        // Omit 'turns' completely to prevent the Type: 'Object' crash
+        await session.sendClientContent({ turnComplete: true });
+      } catch (err) {
+        console.error("⚠️ Fallback: SDK required a text turn. Sending empty string.");
+        // If your specific SDK version still rejects the above, fallback to a blank text part
+        await session.sendClientContent({ 
+           turns: [{ role: "user", parts: [{ text: " " }] }], 
+           turnComplete: true 
+        });
+      }
      }
 
     } catch (sendErr) {
