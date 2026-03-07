@@ -13,14 +13,14 @@ import {
   StopCircle 
 } from 'lucide-react';
 
-// --- EMBEDDED AUDIO PROCESSOR (Updated: Sends raw buffer, no btoa) ---
+// --- EMBEDDED AUDIO PROCESSOR ---
 const AUDIO_WORKLET_CODE = `
 class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.audioBuffer = [];
     this.bufferSize = 4096;
-    this.gain = 2.5; // Boost volume
+    this.gain = 5.0; // INCREASED GAIN to ensure VAD triggers
   }
 
   process(inputs, outputs, parameters) {
@@ -28,28 +28,29 @@ class AudioProcessor extends AudioWorkletProcessor {
     if (input && input.length > 0) {
       const channelData = input[0];
       
-      // 1. Push float32 data to buffer
+      // DEBUG: Check if audio is actually present (not just zeros)
+      let maxVal = 0;
       for (let i = 0; i < channelData.length; i++) {
+        if (Math.abs(channelData[i]) > maxVal) maxVal = Math.abs(channelData[i]);
         this.audioBuffer.push(channelData[i]);
       }
+      
+      // If maxVal stays 0, your mic is muted or broken.
 
-      // 2. Flush if buffer is full
       if (this.audioBuffer.length >= this.bufferSize) {
         const chunkToSend = this.audioBuffer.slice(0, this.bufferSize);
         this.audioBuffer = this.audioBuffer.slice(this.bufferSize);
         
-        // 3. Convert Float32 to Int16 PCM
         const pcm16Buffer = new Int16Array(chunkToSend.length);
         for (let i = 0; i < chunkToSend.length; i++) {
             let s = Math.max(-1, Math.min(1, chunkToSend[i] * this.gain));
             pcm16Buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
-        // 4. Send raw buffer to Main Thread (React)
         this.port.postMessage({ 
             type: 'audio_data', 
             int16Buffer: pcm16Buffer.buffer 
-        }, [pcm16Buffer.buffer]); // Use Transferable for performance
+        }, [pcm16Buffer.buffer]);
       }
     }
     return true; 
