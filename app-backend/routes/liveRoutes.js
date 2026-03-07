@@ -160,7 +160,7 @@ export default function (app) {
    });
 
    // Stream Handling
-    ws.on('message', async (msg) => {
+     ws.on('message', async (msg) => {
     const data = JSON.parse(msg);
 
     try {
@@ -168,14 +168,15 @@ export default function (app) {
       await session.sendRealtimeInput([{ mimeType: "image/jpeg", data: data.frameBase64 }]);
      } 
      else if (data.type === "audio") {
-      // Pure audio pass-through to Gemini
       await session.sendRealtimeInput([{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }]);
      }
      else if (data.type === "speech_start") {
-      console.log("🎤 User started speaking. (Frontend muted AI audio playback)");
+      console.log("🎤 User started speaking. (Frontend muted AI)");
      }
      else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Waiting for Gemini's native VAD to respond...");
+      console.log("🤫 User stopped speaking. Gemini's native VAD will now respond.");
+      // No hacky text turns needed! 
+      // Because your audio is now amplified, Google's server knows you stopped talking and will reply automatically.
      }
     } catch (sendErr) {
       console.error("Error sending to Gemini session:", sendErr);
