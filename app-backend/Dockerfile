@@ -1,16 +1,14 @@
-FROM node:18-alpine
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
-COPY package*.json ./
-RUN npm install
+# Install system dependencies (needed for some crypto/audio libs)
+RUN apt-get update && apt-get install -y gcc libffi-dev
 
-# Copy the backend code
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY . .
 
-# Expose the port Express is running on
-EXPOSE 5000
-
-# Start the server
-CMD ["node", "server.js"]
+# Port 8080 is standard for Cloud Run
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
