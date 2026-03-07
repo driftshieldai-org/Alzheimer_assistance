@@ -121,17 +121,16 @@ export default function (app) {
       }
      },
      onerror: (err) => console.error("Gemini Live API Error:", err),
-     onclose: (e) => { 
-      console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
-      if (ws.readyState === WebSocket.OPEN) ws.close(); 
-     }
+     onclose: () => { 
+       console.log(`🔴 Gemini WS Closed. Code: ${e.code}, Reason: ${e.reason}`);
+       if (ws.readyState === WebSocket.OPEN) ws.close(); }
     }
    });
 
       // 4. Send Photos + Dates as Context
       if (referencePhotos.length > 0) {
         console.log("Sending reference photos to Gemini...");
-       
+
         // Consolidate all reference photos into a single message for reliability.
         const initialParts = [];
         referencePhotos.forEach(photo => {
@@ -162,7 +161,7 @@ export default function (app) {
         if (data.type === "frame") {
           await session.sendRealtimeInput([{
             mimeType: "image/jpeg",
-            data: data.frame
+            data: data.frameBase64
           }]);
         } 
         
@@ -171,9 +170,27 @@ export default function (app) {
           console.log("🎤 Received audio chunk from client."); // Helps confirm audio is streaming
           await session.sendRealtimeInput([{
             mimeType: "audio/pcm;rate=16000",
-            data: data.audio
+            data: data.audioBase64
           }]);
         }
+
+        // ---- Speech Start (Interrupt AI) ----
+       else if (data.type === "speech_start") {
+         console.log("🔴 User interruption detected");
+     
+         await session.sendClientContent({
+           turnComplete: false
+         });
+       }
+     
+       // ---- End of Turn ----
+       else if (data.type === "end_of_turn") {
+         console.log("🟢 Sending turnComplete to Gemini");
+     
+         await session.sendClientContent({
+           turnComplete: true
+         });
+       }
       });
 
       ws.on('close', () => {
