@@ -13,7 +13,7 @@ import {
   StopCircle 
 } from 'lucide-react';
 
-// --- EMBEDDED AUDIO PROCESSOR ---
+// --- EMBEDDED AUDIO PROCESSOR (Updated: Sends raw buffer, no btoa) ---
 const AUDIO_WORKLET_CODE = `
 class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -23,32 +23,33 @@ class AudioProcessor extends AudioWorkletProcessor {
     this.gain = 2.5; // Boost volume
   }
 
-  float32To16BitPCMBase64(buffer) {
-    let pcm16Buffer = new ArrayBuffer(buffer.length * 2);
-    let view = new DataView(pcm16Buffer);
-    for (let i = 0; i < buffer.length; i++) {
-      let s = Math.max(-1, Math.min(1, buffer[i] * this.gain));
-      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    }
-    let binary = '';
-    let bytes = new Uint8Array(pcm16Buffer);
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
   process(inputs, outputs, parameters) {
     const input = inputs[0];
     if (input && input.length > 0) {
       const channelData = input[0];
-      this.audioBuffer.push(...channelData);
+      
+      // 1. Push float32 data to buffer
+      for (let i = 0; i < channelData.length; i++) {
+        this.audioBuffer.push(channelData[i]);
+      }
 
-      while (this.audioBuffer.length >= this.bufferSize) {
+      // 2. Flush if buffer is full
+      if (this.audioBuffer.length >= this.bufferSize) {
         const chunkToSend = this.audioBuffer.slice(0, this.bufferSize);
         this.audioBuffer = this.audioBuffer.slice(this.bufferSize);
-        const audioBase64 = this.float32To16BitPCMBase64(chunkToSend);
-        this.port.postMessage({ type: 'audio_data', audioBase64: audioBase64 });
+        
+        // 3. Convert Float32 to Int16 PCM
+        const pcm16Buffer = new Int16Array(chunkToSend.length);
+        for (let i = 0; i < chunkToSend.length; i++) {
+            let s = Math.max(-1, Math.min(1, chunkToSend[i] * this.gain));
+            pcm16Buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+
+        // 4. Send raw buffer to Main Thread (React)
+        this.port.postMessage({ 
+            type: 'audio_data', 
+            int16Buffer: pcm16Buffer.buffer 
+        }, [pcm16Buffer.buffer]); // Use Transferable for performance
       }
     }
     return true; 
@@ -56,7 +57,6 @@ class AudioProcessor extends AudioWorkletProcessor {
 }
 registerProcessor('audio-processor', AudioProcessor);
 `;
-
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 let nextPlayTime = 0; // Tracks when the next chunk should play
@@ -181,58 +181,68 @@ const startMicCapture = async () => {
     console.log("WebSocket not ready, skipping mic capture.");
     return;
    }
-    
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 16000
-        }
-      });
-      micStreamRef.current = stream;
 
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      audioContextMicRef.current = audioCtx;
-
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
-
-      // Load the AudioWorklet processor
-      // Ensure 'audio-processor.js' is in your public folder
-      const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
-      const workletUrl = URL.createObjectURL(blob);
-      await audioCtx.audioWorklet.addModule(workletUrl);
-    
-      const processorNode = new AudioWorkletNode(audioCtx, 'audio-processor');
-      audioProcessorRef.current = processorNode;
-
-      const source = audioCtx.createMediaStreamSource(stream);
-
-      // Handle messages from the worklet (VAD events, audio data)
-       processorNode.port.onmessage = (event) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        
-        const { type, audioBase64 } = event.data;
-        
-        // Simply forward the audio chunk
-        if (type === 'audio_data' && audioBase64) {
-          wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
-        }
-       };
-
-      source.connect(processorNode);
-    console.log("🎤 Microphone capture started successfully.");
-      // We don't need to connect to destination unless we want to hear the user's mic input
-      // processorNode.connect(audioCtx.destination); 
-
-    } catch (err) {
-      console.error("Microphone access denied or failed", err);
-      setLiveVideoError("Could not access microphone for real-time conversation.");
+   const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+     channelCount: 1,
+     echoCancellation: true,
+     noiseSuppression: true,
+     autoGainControl: true,
+     sampleRate: 16000
     }
-  };
+   });
+   micStreamRef.current = stream;
+
+   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+   audioContextMicRef.current = audioCtx;
+
+   if (audioCtx.state === 'suspended') {
+    await audioCtx.resume();
+   }
+
+   // Load processor from Blob string
+   const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
+   const workletUrl = URL.createObjectURL(blob);
+   await audioCtx.audioWorklet.addModule(workletUrl);
+
+   const processorNode = new AudioWorkletNode(audioCtx, 'audio-processor');
+   audioProcessorRef.current = processorNode;
+
+   const source = audioCtx.createMediaStreamSource(stream);
+
+   // --- Helper to convert ArrayBuffer to Base64 ---
+   const arrayBufferToBase64 = (buffer) => {
+     let binary = '';
+     const bytes = new Uint8Array(buffer);
+     const len = bytes.byteLength;
+     for (let i = 0; i < len; i++) {
+       binary += String.fromCharCode(bytes[i]);
+     }
+     return window.btoa(binary);
+   };
+
+   // --- Handle messages from Worklet ---
+   processorNode.port.onmessage = (event) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    
+    const { type, int16Buffer } = event.data;
+    
+    if (type === 'audio_data' && int16Buffer) {
+      // Convert raw buffer to Base64 here in the main thread
+      const audioBase64 = arrayBufferToBase64(int16Buffer);
+      wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+    }
+   };
+
+   source.connect(processorNode);
+   console.log("🎤 Microphone capture started successfully.");
+
+  } catch (err) {
+   console.error("Microphone access denied or failed:", err);
+   setLiveVideoError("Could not access microphone.");
+  }
+ };
+
   
   const startLiveAssistance = async () => {
     // Ensure audio context is resumed by a user gesture, like the start button click
