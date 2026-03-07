@@ -163,47 +163,52 @@ export default function MemoryMateApp() {
       const source = audioCtx.createMediaStreamSource(stream);
 
       // Handle messages from the worklet (VAD events, audio data)
-     processorNode.port.onmessage = (event) => {
+  let audioBuffer = [];
+
+   processorNode.port.onmessage = (event) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    const { type, pcmData } = event.data;
+    const { type, audioChunk } = event.data;
 
-    if (type === 'audio_data' && pcmData) {
+    if (type === 'audio_data' && audioChunk) {
      try {
-      // 1. Create a DataView to securely enforce Little-Endian PCM-16 formatting
-      const buffer = new ArrayBuffer(pcmData.length * 2);
-      const view = new DataView(buffer);
-      for (let i = 0; i < pcmData.length; i++) {
-       // true = strictly enforce little-endian formatting (required by Google)
-       view.setInt16(i * 2, pcmData[i], true); 
+      // 1. Buffer in the main thread
+      for (let i = 0; i < audioChunk.length; i++) {
+       let s = Math.max(-1, Math.min(1, audioChunk[i]));
+       audioBuffer.push(s < 0 ? s * 0x8000 : s * 0x7FFF);
       }
       
-      // 2. Convert to Base64 safely
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) {
-       binary += String.fromCharCode(bytes[i]);
+      // 2. Send in chunks of 4096 to Gemini
+      if (audioBuffer.length >= 4096) {
+       const bufferToSend = new Int16Array(audioBuffer);
+       audioBuffer = []; 
+       
+       const buffer = new ArrayBuffer(bufferToSend.length * 2);
+       const view = new DataView(buffer);
+       for (let i = 0; i < bufferToSend.length; i++) {
+        view.setInt16(i * 2, bufferToSend[i], true); // true = Little-Endian
+       }
+       
+       const bytes = new Uint8Array(buffer);
+       let binary = '';
+       for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+       }
+       
+       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: window.btoa(binary) }));
       }
-      const base64 = window.btoa(binary);
-      
-      // 3. Send the valid audio chunk to the backend
-      wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: base64 }));
-      
      } catch (err) {
-      console.error("Audio encoding failed locally:", err);
+      console.error("Audio encoding failed:", err);
      }
     }
     else if (type === 'speech_start') {
-     console.log("🎤 Speech started");
-     clearAudioQueue(); // Interrupt AI playback locally
+     clearAudioQueue(); 
      wsRef.current.send(JSON.stringify({ type: "speech_start" }));
     }
     else if (type === 'end_of_turn') {
-     console.log("🛑 Speech ended");
      wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
     }
-   };
-    
+   };   
    source.connect(processorNode);
       processorNode.connect(audioCtx.destination); // Connect to destination to hear audio (optional)
 

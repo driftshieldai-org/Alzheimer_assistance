@@ -1,10 +1,6 @@
 class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.bufferSize = 4096;
-    this.pcmBuffer = new Int16Array(this.bufferSize);
-    this.bytesWritten = 0;
-    
     this.isSpeaking = false;
     this.silenceFrames = 0;
     this.speechFrames = 0;
@@ -18,24 +14,15 @@ class AudioProcessor extends AudioWorkletProcessor {
       let maxVol = 0;
 
       for (let i = 0; i < channelData.length; i++) {
-        let val = channelData[i];
-        if (Math.abs(val) > maxVol) maxVol = Math.abs(val);
-        
-        // Convert Float32 audio to PCM Int16
-        let s = Math.max(-1, Math.min(1, val));
-        this.pcmBuffer[this.bytesWritten++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-
-        if (this.bytesWritten >= this.bufferSize) {
-          // Array.from() ensures a safe standard array transfers across the thread boundary
-          this.port.postMessage({ 
-            type: 'audio_data', 
-            pcmData: Array.from(this.pcmBuffer) 
-          });
-          this.bytesWritten = 0;
-        }
+        if (Math.abs(channelData[i]) > maxVol) maxVol = Math.abs(channelData[i]);
       }
 
-      // VAD Logic
+      // Send raw, unmodified slice directly to React
+      this.port.postMessage({ 
+        type: 'audio_data', 
+        audioChunk: channelData.slice() 
+      });
+
       if (maxVol > this.vadThreshold) {
         this.silenceFrames = 0;
         this.speechFrames++;
