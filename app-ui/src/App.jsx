@@ -209,7 +209,16 @@ export default function MemoryMateApp() {
      wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
     }
    };
-      
+
+  source.connect(processorNode);
+      processorNode.connect(audioCtx.destination); // Connect to destination to hear audio (optional)
+
+    } catch (err) {
+      console.error("Microphone access denied or failed", err);
+      setLiveVideoError("Could not access microphone for real-time conversation.");
+    }
+  };
+  
   const startLiveAssistance = async () => {
     // Ensure audio context is resumed by a user gesture, like the start button click
     if (audioContext.state === 'suspended') {
