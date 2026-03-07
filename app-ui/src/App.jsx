@@ -163,35 +163,39 @@ export default function MemoryMateApp() {
       const source = audioCtx.createMediaStreamSource(stream);
 
       // Handle messages from the worklet (VAD events, audio data)
-      processorNode.port.onmessage = (event) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    
-        const { type } = event.data;
-    
-        if (type === 'audio_data') {
-         // Bulletproof Base64 conversion that won't crash the browser stack
-         const bytes = new Uint8Array(event.data.pcmData.buffer);
-         let binary = '';
-         for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-         }
-         const base64 = window.btoa(binary);
-         
-         // Send the valid audio chunk to the backend
-         wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: base64 }));
-        }
-        else if (type === 'speech_start') {
-         console.log("🎤 Speech started");
-         clearAudioQueue(); // Interrupt AI playback locally
-         wsRef.current.send(JSON.stringify({ type: "speech_start" }));
-        }
-        else if (type === 'end_of_turn') {
-         console.log("🛑 Speech ended");
-         wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
-        }
-    };
+processorNode.port.onmessage = (event) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-      source.connect(processorNode);
+    const { type, pcmData } = event.data;
+
+    if (type === 'audio_data' && pcmData) {
+     try {
+      // Safely convert ArrayBuffer to Base64
+      const bytes = new Uint8Array(pcmData);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+       binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = window.btoa(binary);
+      
+      // Send the valid audio chunk to the backend
+      wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: base64 }));
+     } catch (err) {
+      console.error("Audio encoding failed locally:", err);
+     }
+    }
+    else if (type === 'speech_start') {
+     console.log("🎤 Speech started");
+     clearAudioQueue(); // Interrupt AI playback locally
+     wsRef.current.send(JSON.stringify({ type: "speech_start" }));
+    }
+    else if (type === 'end_of_turn') {
+     console.log("🛑 Speech ended");
+     wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
+    }
+   };
+    
+   source.connect(processorNode);
       processorNode.connect(audioCtx.destination); // Connect to destination to hear audio (optional)
 
     } catch (err) {
