@@ -131,12 +131,16 @@ export default function (app) {
      turnComplete: true 
    });
 
+   // Store the most recent video frame in memory
+   let latestVideoFrame = null;
+
    // Stream Handling
    ws.on('message', async (msg) => {
     const data = JSON.parse(msg);
 
     try {
      if (data.type === "frame") {
+      latestVideoFrame = data.frameBase64;
       await session.sendRealtimeInput([{ mimeType: "image/jpeg", data: data.frameBase64 }]);
      } 
      else if (data.type === "audio") {
@@ -146,13 +150,31 @@ export default function (app) {
       console.log("🎤 User started speaking.");
      }
      else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Frontend injected true silence to organically trip VAD.");
-      // NO TEXT OVERRIDES HERE! We let the absolute silence organically trigger the reply!
+      console.log("🤫 User stopped speaking. Closing turn with Image Frame to preserve audio buffer...");
+      
+      // THE FIX: We use the Video Frame to close the turn!
+      // This satisfies the SDK validation, avoids text-overrides, and forces the AI to process your voice!
+      if (latestVideoFrame) {
+        await session.sendClientContent({
+          turns: [{ 
+            role: "user", 
+            parts: [{ inlineData: { mimeType: "image/jpeg", data: latestVideoFrame } }] 
+          }],
+          turnComplete: true
+        });
+      } else {
+        // Fallback just in case the camera hasn't sent a frame yet
+        await session.sendClientContent({
+          turns: [{ role: "user", parts: [{ text: " " }] }],
+          turnComplete: true
+        });
+      }
      }
     } catch (sendErr) {
       console.error("Error sending to Gemini:", sendErr);
     }
    });
+   
 
   } catch (error) {
    console.error("Live Stream Error:", error);
