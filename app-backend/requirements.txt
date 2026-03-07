@@ -3,7 +3,7 @@ uvicorn[standard]
 websockets
 python-multipart
 python-jose[cryptography]
-passlib[bcrypt]
+bcrypt            
 google-cloud-firestore
 google-cloud-storage
 google-genai
