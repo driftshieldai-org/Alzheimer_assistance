@@ -10,8 +10,7 @@ import {
   Upload, 
   CameraIcon,
   PlayIcon, 
-  StopCircle ,
-  ImageIcon
+  StopCircle 
 } from 'lucide-react';
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
@@ -165,42 +164,30 @@ export default function MemoryMateApp() {
 
       // Handle messages from the worklet (VAD events, audio data)
       processorNode.port.onmessage = (event) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-  if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        const { type, audioBase64 } = event.data;
 
-  const { type, audioBase64 } = event.data;
-
-  if (type === "speech_start") {
-
-    console.log("🎤 Speech started");
-    clearAudioQueue();
-
-    wsRef.current.send(JSON.stringify({
-      type: "speech_start"
-    }));
-
-  }
-
-  else if (type === "audio_data") {
-
-    wsRef.current.send(JSON.stringify({
-      type: "audio",
-      audioBase64
-    }));
-
-  }
-
-  else if (type === "end_of_turn") {
-
-    console.log("🛑 End of turn");
-
-    wsRef.current.send(JSON.stringify({
-      type: "end_of_turn"
-    }));
-
-  }
-
-};
+        switch (type) {
+          case 'speech_start':
+            console.log("🎤 Speech started (from worklet)");
+            clearAudioQueue(); // Interrupt AI speech
+            wsRef.current.send(JSON.stringify({ type: "speech_start" }));
+            break;
+          case 'audio_data':
+            // Directly forward the base64 data from the worklet
+            if (audioBase64) {
+              wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+            }
+            break;
+          case 'end_of_turn':
+            console.log("🛑 End of turn detected (from worklet)");
+            wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
+            break;
+          default:
+            break;
+        }
+      };
 
       source.connect(processorNode);
       // We don't need to connect to destination unless we want to hear the user's mic input
