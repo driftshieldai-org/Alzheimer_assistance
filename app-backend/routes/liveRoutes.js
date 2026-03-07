@@ -169,12 +169,10 @@ export default function (app) {
      } 
      else if (data.type === "audio") {
       audioChunkCount++;
-      // Log every ~5 seconds to prove audio is flowing to Google
-      if (audioChunkCount % 20 === 0) {
+      // Log every ~1 second to verify audio is flowing
+      if (audioChunkCount % 4 === 0) {
           console.log(`🎵 Streaming raw audio to Gemini... (Chunk ${audioChunkCount})`);
       }
-      
-      // PURE AUDIO PASS-THROUGH. No explicit turn commands!
       await session.sendRealtimeInput([{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }]);
      }
      else if (data.type === "speech_start") {
