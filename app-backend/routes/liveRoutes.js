@@ -62,7 +62,7 @@ export default function (app) {
      const location = process.env.GCP_REGION || "us-central1";
      
      // FIXED: Using the stable GA model
-     const model = "gemini-2.0-flash"; 
+     const model = "gemini-live-2.5-flash-native-audio"; 
      const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location });
      
      // RESTORED: Using your original callback structure which is correct for Node.js
