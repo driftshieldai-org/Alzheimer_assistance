@@ -155,7 +155,7 @@ export default function (app) {
 
    // Setup 2: Trigger initial AI greeting
    await session.sendClientContent({
-     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${}. I am turning on my camera and microphone now. Let me know when you are ready.` }] }],
+     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am turning on my camera and microphone now. Let me know when you are ready.` }] }],
      turnComplete: true 
    });
 
