@@ -28,7 +28,7 @@ export default function (app) {
     }
 
     try {
-      // 1. Load User & Photos
+      // 1. Fetch User & Photos
       let userName = userId;
       const userDoc = await db.collection('users').doc(userId).get();
       if (userDoc.exists) userName = userDoc.data().name || userId;
@@ -48,22 +48,21 @@ export default function (app) {
         }
       }
 
-      // 2. Connect to Gemini Live
+      // 2. Configure Gemini
       const projectId = process.env.GCP_PROJECT_ID;
       const location = process.env.GCP_REGION || "us-central1";
-      
-      // Using the model you confirmed works for you
       const model = "gemini-live-2.5-flash-native-audio"; 
 
       const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location });
 
       const SYSTEM_INSTRUCTION = `
       You are MemoryMate. User: ${userName}.
-      1. Greet the user.
+      1. Greet the user warmly.
       2. Listen to the user's voice and watch the video stream.
-      3. If a photo matches the video, mention the Date/Description.
+      3. If you see a photo match, mention the Date/Description.
       `;
 
+      // 3. Connect WITH CALLBACKS (Fixes the "undefined" crash)
       const session = await ai.live.connect({
         model: model,
         config: {
@@ -72,18 +71,18 @@ export default function (app) {
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } }
           }
-        }
-      });
-
-      console.log(`🟢 Connected to ${model}`);
-
-      // 3. Receive Loop
-      (async () => {
-        try {
-          for await (const message of session.receive()) {
+        },
+        callbacks: {
+          onopen: () => {
+            console.log("🟢 Connected to Gemini Live API");
+          },
+          onmessage: (message) => {
+            // Handle Interruption
             if (message.serverContent?.interrupted && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "interrupted" }));
             }
+
+            // Handle Audio/Text
             const turn = message.serverContent?.modelTurn;
             if (turn?.parts) {
               for (const part of turn.parts) {
@@ -98,21 +97,26 @@ export default function (app) {
                 }
               }
             }
+          },
+          onclose: () => {
+            console.log("🔴 Gemini Connection Closed");
+            if (ws.readyState === WebSocket.OPEN) ws.close();
+          },
+          onerror: (err) => {
+            console.error("Gemini Error:", err);
+            if (ws.readyState === WebSocket.OPEN) ws.close(1011, "Gemini Error");
           }
-        } catch (err) {
-          console.error("Gemini Receive Error:", err);
         }
-      })();
+      });
 
-      // 4. Send Context (The Critical Fix)
+      // 4. Send Context (Fixes the Silence)
       const initialParts = referencePhotos.flatMap(photo => [
         { text: `Memory: ${photo.description} on ${photo.date}` },
         { inlineData: { mimeType: photo.mimeType, data: photo.data } }
       ]);
       initialParts.push({ text: `Hello, I am ${userName}.` });
 
-      // ✅ FIXED: Using sendClientContent (Valid for your SDK) 
-      // ✅ FIXED: turnComplete: TRUE (Stops the silence, enables mic input)
+      // ✅ turnComplete: true is crucial here
       await session.sendClientContent({
         turns: [{ role: "user", parts: initialParts }],
         turnComplete: true 
@@ -120,11 +124,10 @@ export default function (app) {
 
       console.log("✅ Context sent. Mode switched to: LISTENING.");
 
-      // 5. Forward Stream
+      // 5. Forward Stream (Uses your working methods)
       ws.on('message', async (msg) => {
         const data = JSON.parse(msg);
 
-        // ✅ FIXED: Using sendRealtimeInput (Valid for your SDK)
         if (data.type === "frame") {
           await session.sendRealtimeInput([{
             mimeType: "image/jpeg",
