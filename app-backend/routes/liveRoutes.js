@@ -163,45 +163,28 @@ export default function (app) {
     ws.on('message', async (msg) => {
     const data = JSON.parse(msg);
 
-   try {
-     // 1. Forward Video Frame
+    try {
      if (data.type === "frame") {
-      await session.sendRealtimeInput([{
-         mimeType: "image/jpeg",
-         data: data.frameBase64
-      }]);
+      await session.sendRealtimeInput([{ mimeType: "image/jpeg", data: data.frameBase64 }]);
      } 
-     // 2. Forward Audio Data
      else if (data.type === "audio") {
-      await session.sendRealtimeInput([{
-         mimeType: "audio/pcm;rate=16000",
-         data: data.audioBase64
-      }]);
+      audioChunkCount++;
+      // Log every ~5 seconds to prove audio is flowing to Google
+      if (audioChunkCount % 20 === 0) {
+          console.log(`🎵 Streaming raw audio to Gemini... (Chunk ${audioChunkCount})`);
+      }
+      
+      // PURE AUDIO PASS-THROUGH. No explicit turn commands!
+      await session.sendRealtimeInput([{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }]);
      }
-     
-      // 3. Handle Speech Interruption gracefully
-     // We DO NOT send `turns: []` to Gemini here. Gemini's native audio engine 
-     // automatically detects your voice in the PCM stream and cuts itself off!
-     // Your frontend is already muting the audio queue on `speech_start`, which is perfect.
      else if (data.type === "speech_start") {
       console.log("🎤 User started speaking. (Frontend muted AI audio playback)");
+      // DO NOT send anything to Gemini here.
      }
      else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Telling Gemini to respond...");
-      try {
-        // Tell Gemini to process the audio buffer and reply!
-        // Omit 'turns' completely to prevent the Type: 'Object' crash
-        await session.sendClientContent({ turnComplete: true });
-      } catch (err) {
-        console.error("⚠️ Fallback: SDK required a text turn. Sending empty string.");
-        // If your specific SDK version still rejects the above, fallback to a blank text part
-        await session.sendClientContent({ 
-           turns: [{ role: "user", parts: [{ text: " " }] }], 
-           turnComplete: true 
-        });
-      }
+      console.log("🤫 User stopped speaking. Waiting for Gemini's native VAD to respond...");
+      // DO NOT send turnComplete to Gemini here. The server natively answers when audio goes silent.
      }
-
     } catch (sendErr) {
       console.error("Error sending to Gemini session:", sendErr);
     }
