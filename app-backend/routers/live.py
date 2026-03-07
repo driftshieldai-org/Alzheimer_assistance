@@ -95,23 +95,27 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         # 4. Connect Loop
-        async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
+       async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print(f"🟢 Connected to {MODEL_ID}")
 
             # Prepare Initial Context
+            # The Live API expects the input to be exactly a list of `Part` objects,
+            # NOT wrapped in `Content` or dictionaries.
             initial_parts = []
             for photo in reference_photos:
-                initial_parts.append(types.Part(text=f"Memory: {photo['desc']} on {photo['date']}"))
-                initial_parts.append(types.Part(inline_data=types.Blob(
-                    mime_type=photo['mime'],
-                    data=base64.b64decode(photo['data'])
-                )))
+                initial_parts.append(types.Part.from_text(text=f"Memory: {photo['desc']} on {photo['date']}"))
+                initial_parts.append(
+                    types.Part.from_bytes(
+                        data=base64.b64decode(photo['data']),
+                        mime_type=photo['mime']
+                    )
+                )
             
-            initial_parts.append(types.Part(text=f"Hello, I am {user_name}. Please say hello."))
+            initial_parts.append(types.Part.from_text(text=f"Hello, I am {user_name}. Please say hello."))
 
-            # ✅ FIX 1: Wrap the list in a types.Content object
+            # ✅ FIX 1: Send the list of Parts directly. 
             await session.send(
-                input=types.Content(parts=initial_parts),
+                input=initial_parts,
                 end_of_turn=True
             )
             print("✅ Context sent. Mode: LISTENING")
@@ -156,18 +160,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     data = await websocket.receive_json()
                     
                     if data['type'] == 'frame':
-                        # ✅ FIX 2: Wrap frames in realtime_input format
+                        # ✅ FIX 2: Send Realtime Input exactly as a LiveClientRealtimeInput object
                         await session.send(
-                            input={
-                                "realtime_input": {
-                                    "media_chunks": [
-                                        types.Blob(
-                                            mime_type="image/jpeg",
-                                            data=base64.b64decode(data['frameBase64'])
-                                        )
-                                    ]
-                                }
-                            }
+                            input=types.LiveClientRealtimeInput(
+                                media_chunks=[
+                                    types.Blob(
+                                        mime_type="image/jpeg",
+                                        data=base64.b64decode(data['frameBase64'])
+                                    )
+                                ]
+                            )
                         )
                     
                     elif data['type'] == 'audio':
@@ -175,18 +177,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         if debug_audio_counter % 50 == 0:
                             print(f"🎤 Audio Active: Received {debug_audio_counter} chunks")
                             
-                        # ✅ FIX 3: Wrap audio in realtime_input format
+                        # ✅ FIX 3: Same format for Audio
                         await session.send(
-                            input={
-                                "realtime_input": {
-                                    "media_chunks": [
-                                        types.Blob(
-                                            mime_type="audio/pcm;rate=16000",
-                                            data=base64.b64decode(data['audioBase64'])
-                                        )
-                                    ]
-                                }
-                            }
+                            input=types.LiveClientRealtimeInput(
+                                media_chunks=[
+                                    types.Blob(
+                                        mime_type="audio/pcm;rate=16000",
+                                        data=base64.b64decode(data['audioBase64'])
+                                    )
+                                ]
+                            )
                         )
 
             except WebSocketDisconnect:
