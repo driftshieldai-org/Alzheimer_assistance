@@ -13,14 +13,14 @@ import {
   StopCircle 
 } from 'lucide-react';
 
-// --- EMBEDDED AUDIO PROCESSOR ---
+// --- EMBEDDED AUDIO PROCESSOR (High Gain + Little Endian) ---
 const AUDIO_WORKLET_CODE = `
 class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.audioBuffer = [];
     this.bufferSize = 4096;
-    this.gain = 5.0; // INCREASED GAIN to ensure VAD triggers
+    this.gain = 5.0; // 🔊 High Gain to trigger Interruption/VAD
   }
 
   process(inputs, outputs, parameters) {
@@ -28,29 +28,34 @@ class AudioProcessor extends AudioWorkletProcessor {
     if (input && input.length > 0) {
       const channelData = input[0];
       
-      // DEBUG: Check if audio is actually present (not just zeros)
-      let maxVal = 0;
+      // Fill local buffer
       for (let i = 0; i < channelData.length; i++) {
-        if (Math.abs(channelData[i]) > maxVal) maxVal = Math.abs(channelData[i]);
         this.audioBuffer.push(channelData[i]);
       }
-      
-      // If maxVal stays 0, your mic is muted or broken.
 
+      // Flush when full
       if (this.audioBuffer.length >= this.bufferSize) {
         const chunkToSend = this.audioBuffer.slice(0, this.bufferSize);
         this.audioBuffer = this.audioBuffer.slice(this.bufferSize);
         
-        const pcm16Buffer = new Int16Array(chunkToSend.length);
+        // Create DataView for explicit Little Endian encoding
+        const buffer = new ArrayBuffer(chunkToSend.length * 2);
+        const view = new DataView(buffer);
+
         for (let i = 0; i < chunkToSend.length; i++) {
+            // Apply gain and clamp
             let s = Math.max(-1, Math.min(1, chunkToSend[i] * this.gain));
-            pcm16Buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            // Convert to PCM16
+            s = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            // Write Int16, Little Endian = true
+            view.setInt16(i * 2, s, true); 
         }
 
+        // Send raw ArrayBuffer to main thread
         this.port.postMessage({ 
             type: 'audio_data', 
-            int16Buffer: pcm16Buffer.buffer 
-        }, [pcm16Buffer.buffer]);
+            buffer: buffer 
+        }, [buffer]);
       }
     }
     return true; 
@@ -58,6 +63,7 @@ class AudioProcessor extends AudioWorkletProcessor {
 }
 registerProcessor('audio-processor', AudioProcessor);
 `;
+
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 let nextPlayTime = 0; // Tracks when the next chunk should play
@@ -176,39 +182,27 @@ export default function MemoryMateApp() {
   }, [currentScreen]);
 
   // This function now uses AudioWorklet for better performance and to avoid deprecated APIs.
-const startMicCapture = async () => {
+ const startMicCapture = async () => {
   try {
    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-   // 1. Get Microphone Stream
    const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
      channelCount: 1,
      echoCancellation: true,
-     autoGainControl: true,
      noiseSuppression: true,
-     // Try to request 16k, but browsers might ignore this
-     sampleRate: 16000 
+     autoGainControl: true,
+     sampleRate: 16000
     }
    });
    micStreamRef.current = stream;
 
-   // 2. Initialize AudioContext with explicit sampleRate
-   // This forces the browser to resample if the hardware is 48k
-   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ 
-     sampleRate: 16000,
-   });
-   
+   // Force 16k context
+   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
    audioContextMicRef.current = audioCtx;
+   if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-   // DEBUG LOG: Confirm the rate is actually 16000
-   console.log(`🎤 Audio Context Sample Rate: ${audioCtx.sampleRate}Hz`);
-
-   if (audioCtx.state === 'suspended') {
-    await audioCtx.resume();
-   }
-
-   // 3. Load Embedded Processor
+   // Load Embedded Processor
    const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
    const workletUrl = URL.createObjectURL(blob);
    await audioCtx.audioWorklet.addModule(workletUrl);
@@ -218,7 +212,7 @@ const startMicCapture = async () => {
 
    const source = audioCtx.createMediaStreamSource(stream);
 
-   // Optimized Base64 Helper
+   // Helper: ArrayBuffer -> Base64
    const arrayBufferToBase64 = (buffer) => {
      let binary = '';
      const bytes = new Uint8Array(buffer);
@@ -229,15 +223,15 @@ const startMicCapture = async () => {
      return window.btoa(binary);
    };
 
-   // 4. Handle Audio Data
+   // Handle message from worklet
    processorNode.port.onmessage = (event) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     
-    const { type, int16Buffer } = event.data;
+    // Check for "buffer" property now
+    const { type, buffer } = event.data;
     
-    if (type === 'audio_data' && int16Buffer) {
-      // Convert and send
-      const audioBase64 = arrayBufferToBase64(int16Buffer);
+    if (type === 'audio_data' && buffer) {
+      const audioBase64 = arrayBufferToBase64(buffer);
       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
     }
    };
@@ -250,7 +244,7 @@ const startMicCapture = async () => {
    setLiveVideoError("Microphone access failed.");
   }
  };
-
+  
   
   const startLiveAssistance = async () => {
     // Ensure audio context is resumed by a user gesture, like the start button click
