@@ -27,7 +27,6 @@ def get_gcs_base64(filename):
 
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
-    # Accept the connection first so we can send errors back if needed
     await websocket.accept()
     print("🔌 Client connected to Live Stream")
 
@@ -35,7 +34,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # 1. Validate Token
         token = websocket.query_params.get("token")
         if not token:
-            print("❌ No token provided in query params")
+            print("❌ No token provided")
             await websocket.close(code=1008)
             return
 
@@ -43,9 +42,9 @@ async def websocket_endpoint(websocket: WebSocket):
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
             if not user_id:
-                raise ValueError("userId missing from token payload")
+                raise ValueError("userId missing")
         except Exception as e:
-            print(f"❌ Token Verification Error: {e}")
+            print(f"❌ Token Error: {e}")
             await websocket.close(code=1008)
             return
 
@@ -92,7 +91,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                 )
             ),
-            # ✅ FIXED TYPO HERE (Was SYSTEM_INSTR)
             system_instruction=types.Content(parts=[types.Part(text=SYSTEM_INSTRUCTION)])
         )
 
@@ -103,8 +101,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # Prepare Initial Context
             initial_parts = []
             for photo in reference_photos:
-                text_part = f"Memory: {photo['desc']} on {photo['date']}"
-                initial_parts.append(types.Part(text=text_part))
+                initial_parts.append(types.Part(text=f"Memory: {photo['desc']} on {photo['date']}"))
                 initial_parts.append(types.Part(inline_data=types.Blob(
                     mime_type=photo['mime'],
                     data=base64.b64decode(photo['data'])
@@ -112,9 +109,9 @@ async def websocket_endpoint(websocket: WebSocket):
             
             initial_parts.append(types.Part(text=f"Hello, I am {user_name}. Please say hello."))
 
-            # Send Context
+            # ✅ FIX 1: Wrap the list in a types.Content object
             await session.send(
-                input=initial_parts,
+                input=types.Content(parts=initial_parts),
                 end_of_turn=True
             )
             print("✅ Context sent. Mode: LISTENING")
@@ -152,26 +149,44 @@ async def websocket_endpoint(websocket: WebSocket):
             receive_task = asyncio.create_task(receive_loop())
 
             # MAIN LOOP: Receive from React
+            debug_audio_counter = 0
+            
             try:
                 while True:
                     data = await websocket.receive_json()
                     
                     if data['type'] == 'frame':
+                        # ✅ FIX 2: Wrap frames in realtime_input format
                         await session.send(
-                            input=[types.Part(inline_data=types.Blob(
-                                mime_type="image/jpeg",
-                                data=base64.b64decode(data['frameBase64'])
-                            ))],
-                            end_of_turn=False
+                            input={
+                                "realtime_input": {
+                                    "media_chunks": [
+                                        types.Blob(
+                                            mime_type="image/jpeg",
+                                            data=base64.b64decode(data['frameBase64'])
+                                        )
+                                    ]
+                                }
+                            }
                         )
                     
                     elif data['type'] == 'audio':
+                        debug_audio_counter += 1
+                        if debug_audio_counter % 50 == 0:
+                            print(f"🎤 Audio Active: Received {debug_audio_counter} chunks")
+                            
+                        # ✅ FIX 3: Wrap audio in realtime_input format
                         await session.send(
-                            input=[types.Part(inline_data=types.Blob(
-                                mime_type="audio/pcm;rate=16000",
-                                data=base64.b64decode(data['audioBase64'])
-                            ))],
-                            end_of_turn=False
+                            input={
+                                "realtime_input": {
+                                    "media_chunks": [
+                                        types.Blob(
+                                            mime_type="audio/pcm;rate=16000",
+                                            data=base64.b64decode(data['audioBase64'])
+                                        )
+                                    ]
+                                }
+                            }
                         )
 
             except WebSocketDisconnect:
@@ -180,7 +195,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 receive_task.cancel()
 
     except Exception as e:
-        # 🚨 THIS CATCHES EVERYTHING ELSE AND PRINTS IT TO CLOUD RUN
         print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
         print(traceback.format_exc())
         try:
