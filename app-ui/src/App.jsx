@@ -13,6 +13,51 @@ import {
   StopCircle 
 } from 'lucide-react';
 
+// --- EMBEDDED AUDIO PROCESSOR ---
+const AUDIO_WORKLET_CODE = `
+class AudioProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.audioBuffer = [];
+    this.bufferSize = 4096;
+    this.gain = 2.5; // Boost volume
+  }
+
+  float32To16BitPCMBase64(buffer) {
+    let pcm16Buffer = new ArrayBuffer(buffer.length * 2);
+    let view = new DataView(pcm16Buffer);
+    for (let i = 0; i < buffer.length; i++) {
+      let s = Math.max(-1, Math.min(1, buffer[i] * this.gain));
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    let binary = '';
+    let bytes = new Uint8Array(pcm16Buffer);
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (input && input.length > 0) {
+      const channelData = input[0];
+      this.audioBuffer.push(...channelData);
+
+      while (this.audioBuffer.length >= this.bufferSize) {
+        const chunkToSend = this.audioBuffer.slice(0, this.bufferSize);
+        this.audioBuffer = this.audioBuffer.slice(this.bufferSize);
+        const audioBase64 = this.float32To16BitPCMBase64(chunkToSend);
+        this.port.postMessage({ type: 'audio_data', audioBase64: audioBase64 });
+      }
+    }
+    return true; 
+  }
+}
+registerProcessor('audio-processor', AudioProcessor);
+`;
+
+
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 let nextPlayTime = 0; // Tracks when the next chunk should play
 let activeAudioSources = [];
@@ -130,19 +175,20 @@ export default function MemoryMateApp() {
   }, [currentScreen]);
 
   // This function now uses AudioWorklet for better performance and to avoid deprecated APIs.
-  const startMicCapture = async () => {
-    try {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        console.log("WebSocket not ready, skipping mic capture.");
-        return;
-      }
-
+const startMicCapture = async () => {
+  try {
+   if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    console.log("WebSocket not ready, skipping mic capture.");
+    return;
+   }
+    
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 16000
         }
       });
       micStreamRef.current = stream;
@@ -156,7 +202,10 @@ export default function MemoryMateApp() {
 
       // Load the AudioWorklet processor
       // Ensure 'audio-processor.js' is in your public folder
-      await audioCtx.audioWorklet.addModule('/audio-processor.js');
+      const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
+      const workletUrl = URL.createObjectURL(blob);
+      await audioCtx.audioWorklet.addModule(workletUrl);
+    
       const processorNode = new AudioWorkletNode(audioCtx, 'audio-processor');
       audioProcessorRef.current = processorNode;
 
@@ -164,17 +213,18 @@ export default function MemoryMateApp() {
 
       // Handle messages from the worklet (VAD events, audio data)
        processorNode.port.onmessage = (event) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    const { type, audioBase64 } = event.data;
-    
-    // We only process native continuous audio_data now
-    if (type === 'audio_data' && audioBase64) {
-      wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
-    }
-  };
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        
+        const { type, audioBase64 } = event.data;
+        
+        // Simply forward the audio chunk
+        if (type === 'audio_data' && audioBase64) {
+          wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+        }
+       };
 
       source.connect(processorNode);
+    console.log("🎤 Microphone capture started successfully.");
       // We don't need to connect to destination unless we want to hear the user's mic input
       // processorNode.connect(audioCtx.destination); 
 
