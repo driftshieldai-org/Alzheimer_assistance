@@ -163,23 +163,32 @@ export default function MemoryMateApp() {
       const source = audioCtx.createMediaStreamSource(stream);
 
       // Handle messages from the worklet (VAD events, audio data)
-processorNode.port.onmessage = (event) => {
+     processorNode.port.onmessage = (event) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
     const { type, pcmData } = event.data;
 
     if (type === 'audio_data' && pcmData) {
      try {
-      // Safely convert ArrayBuffer to Base64
-      const bytes = new Uint8Array(pcmData);
+      // 1. Create a DataView to securely enforce Little-Endian PCM-16 formatting
+      const buffer = new ArrayBuffer(pcmData.length * 2);
+      const view = new DataView(buffer);
+      for (let i = 0; i < pcmData.length; i++) {
+       // true = strictly enforce little-endian formatting (required by Google)
+       view.setInt16(i * 2, pcmData[i], true); 
+      }
+      
+      // 2. Convert to Base64 safely
+      const bytes = new Uint8Array(buffer);
       let binary = '';
       for (let i = 0; i < bytes.length; i++) {
        binary += String.fromCharCode(bytes[i]);
       }
       const base64 = window.btoa(binary);
       
-      // Send the valid audio chunk to the backend
+      // 3. Send the valid audio chunk to the backend
       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: base64 }));
+      
      } catch (err) {
       console.error("Audio encoding failed locally:", err);
      }

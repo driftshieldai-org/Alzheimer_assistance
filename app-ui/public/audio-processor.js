@@ -2,7 +2,7 @@ class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.bufferSize = 4096;
-    this.buffer = new Int16Array(this.bufferSize);
+    this.pcmBuffer = new Int16Array(this.bufferSize);
     this.bytesWritten = 0;
     
     this.isSpeaking = false;
@@ -21,14 +21,16 @@ class AudioProcessor extends AudioWorkletProcessor {
         let val = channelData[i];
         if (Math.abs(val) > maxVol) maxVol = Math.abs(val);
         
-        // Convert Float32 audio to PCM Int16 correctly
+        // Convert Float32 audio to PCM Int16
         let s = Math.max(-1, Math.min(1, val));
-        this.buffer[this.bytesWritten++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        this.pcmBuffer[this.bytesWritten++] = s < 0 ? s * 0x8000 : s * 0x7FFF;
 
         if (this.bytesWritten >= this.bufferSize) {
-          // Send raw ArrayBuffer safely across the thread
-          const bufferCopy = new Int16Array(this.buffer);
-          this.port.postMessage({ type: 'audio_data', pcmData: bufferCopy.buffer });
+          // Array.from() ensures a safe standard array transfers across the thread boundary
+          this.port.postMessage({ 
+            type: 'audio_data', 
+            pcmData: Array.from(this.pcmBuffer) 
+          });
           this.bytesWritten = 0;
         }
       }
