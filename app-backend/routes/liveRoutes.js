@@ -174,9 +174,15 @@ export default function (app) {
       console.log("🎤 User started speaking. (Frontend muted AI)");
      }
      else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Gemini's native VAD will now respond.");
-      // No hacky text turns needed! 
-      // Because your audio is now amplified, Google's server knows you stopped talking and will reply automatically.
+      console.log("🤫 User stopped speaking. Forcing Gemini to respond...");
+      
+      // FORCE THE RESPONSE: 
+      // Sending a blank space tells the AI "I am done talking."
+      // Because the text is blank, it will automatically look at your microphone audio and video frames to generate its answer!
+      await session.sendClientContent({ 
+          turns: [{ role: "user", parts: [{ text: " " }] }], 
+          turnComplete: true 
+      });
      }
     } catch (sendErr) {
       console.error("Error sending to Gemini session:", sendErr);
