@@ -163,31 +163,16 @@ export default function MemoryMateApp() {
       const source = audioCtx.createMediaStreamSource(stream);
 
       // Handle messages from the worklet (VAD events, audio data)
-      processorNode.port.onmessage = (event) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+       processorNode.port.onmessage = (event) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-        const { type, audioBase64 } = event.data;
-
-        switch (type) {
-          case 'speech_start':
-            console.log("🎤 Speech started (from worklet)");
-            clearAudioQueue(); // Interrupt AI speech
-            wsRef.current.send(JSON.stringify({ type: "speech_start" }));
-            break;
-          case 'audio_data':
-            // Directly forward the base64 data from the worklet
-            if (audioBase64) {
-              wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
-            }
-            break;
-          case 'end_of_turn':
-            console.log("🛑 End of turn detected (from worklet)");
-            wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
-            break;
-          default:
-            break;
-        }
-      };
+    const { type, audioBase64 } = event.data;
+    
+    // We only process native continuous audio_data now
+    if (type === 'audio_data' && audioBase64) {
+      wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+    }
+  };
 
       source.connect(processorNode);
       // We don't need to connect to destination unless we want to hear the user's mic input
