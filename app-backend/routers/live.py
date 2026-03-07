@@ -95,7 +95,7 @@ async def websocket_endpoint(websocket: WebSocket):
         )
 
         # 4. Connect Loop
-       async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
+        async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print(f"🟢 Connected to {MODEL_ID}")
 
             # Prepare Initial Context
