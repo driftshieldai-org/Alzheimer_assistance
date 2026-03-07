@@ -57,7 +57,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 ))
                 # Add Image URL (Vertex AI reads gs:// links natively!)
                 system_parts.append(types.Part.from_uri(
-                    uri=f"gs://{BUCKET_NAME}/{data['filename']}",
+                    file_uri=f"gs://{BUCKET_NAME}/{data['filename']}",
                     mime_type="image/jpeg"
                 ))
 
