@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 websockets
 python-multipart
 python-jose[cryptography]
