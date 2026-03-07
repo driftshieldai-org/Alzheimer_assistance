@@ -124,6 +124,8 @@ export default function (app) {
 
       console.log("✅ Context sent. Mode switched to: LISTENING.");
 
+      let debugAudioCounter = 0;
+      
       // 5. Forward Stream (Uses your working methods)
       ws.on('message', async (msg) => {
         const data = JSON.parse(msg);
@@ -135,6 +137,10 @@ export default function (app) {
           }]);
         } 
         else if (data.type === "audio") {
+          debugAudioCounter++;
+          if (debugAudioCounter % 50 === 0) {
+            console.log(`🎤 Audio Active: Received ${debugAudioCounter} chunks`);
+          }
           await session.sendRealtimeInput([{
             mimeType: "audio/pcm;rate=16000",
             data: data.audioBase64
