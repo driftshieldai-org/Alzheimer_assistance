@@ -67,8 +67,8 @@ export default function (app) {
     const projectId = process.env.GCP_PROJECT_ID;
     const location = process.env.GCP_REGION || "us-central1";
     // Using gemini-1.0-pro as it's widely available and avoids the 1008 connection errors you were seeing.
-    const model = "gemini-1.0-pro"; 
-    //const model = "gemini-live-2.5-flash-native-audio";
+    //const model = "gemini-1.0-pro"; 
+    const model = "gemini-live-2.5-flash-native-audio";
 
     console.log(`projectId: ${projectId} location: ${location}`);
     
