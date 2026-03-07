@@ -163,7 +163,7 @@ export default function MemoryMateApp() {
       const source = audioCtx.createMediaStreamSource(stream);
 
       // Handle messages from the worklet (VAD events, audio data)
-  let audioBuffer = [];
+ let audioBuffer = [];
 
    processorNode.port.onmessage = (event) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -172,13 +172,13 @@ export default function MemoryMateApp() {
 
     if (type === 'audio_data' && audioChunk) {
      try {
-      // 1. Buffer in the main thread
+      // AMPLIFY THE AUDIO BY 500% SO GEMINI'S VAD CAN HEAR IT
+      const GAIN = 5.0; 
       for (let i = 0; i < audioChunk.length; i++) {
-       let s = Math.max(-1, Math.min(1, audioChunk[i]));
+       let s = Math.max(-1, Math.min(1, audioChunk[i] * GAIN));
        audioBuffer.push(s < 0 ? s * 0x8000 : s * 0x7FFF);
       }
       
-      // 2. Send in chunks of 4096 to Gemini
       if (audioBuffer.length >= 4096) {
        const bufferToSend = new Int16Array(audioBuffer);
        audioBuffer = []; 
@@ -186,7 +186,7 @@ export default function MemoryMateApp() {
        const buffer = new ArrayBuffer(bufferToSend.length * 2);
        const view = new DataView(buffer);
        for (let i = 0; i < bufferToSend.length; i++) {
-        view.setInt16(i * 2, bufferToSend[i], true); // true = Little-Endian
+        view.setInt16(i * 2, bufferToSend[i], true); 
        }
        
        const bytes = new Uint8Array(buffer);
@@ -208,16 +208,8 @@ export default function MemoryMateApp() {
     else if (type === 'end_of_turn') {
      wsRef.current.send(JSON.stringify({ type: "end_of_turn" }));
     }
-   };   
-   source.connect(processorNode);
-      processorNode.connect(audioCtx.destination); // Connect to destination to hear audio (optional)
-
-    } catch (err) {
-      console.error("Microphone access denied or failed", err);
-      setLiveVideoError("Could not access microphone for real-time conversation.");
-    }
-  };
-
+   };
+      
   const startLiveAssistance = async () => {
     // Ensure audio context is resumed by a user gesture, like the start button click
     if (audioContext.state === 'suspended') {
