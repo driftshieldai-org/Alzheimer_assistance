@@ -187,7 +187,7 @@ export default function (app) {
       console.log("🎤 User started speaking. (Frontend muted AI audio playback)");
      }
      else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Waiting for Gemini native response...");
+      console.log("🤫 User stopped speaking. Telling Gemini to respond...");
       try {
         // Tell Gemini to process the audio buffer and reply!
         // Omit 'turns' completely to prevent the Type: 'Object' crash
