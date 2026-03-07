@@ -91,36 +91,37 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                 )
             ),
-            system_instruction=types.Content(parts=[types.Part(text=SYSTEM_INSTRUCTION)])
+            system_instruction=types.Content(parts=[types.Part.from_text(text=SYSTEM_INSTRUCTION)])
         )
 
         # 4. Connect Loop
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print(f"🟢 Connected to {MODEL_ID}")
 
-            # ✅ FIX: Send Context Sequentially
-            # We send each piece of text and each photo one by one.
-            # We use end_of_turn=False to tell the AI "wait, I'm still uploading".
+            # ✅ FIX: Construct the exact LiveClientContent object the SDK demands
+            parts = []
             for photo in reference_photos:
-                # 1. Send the description string
-                await session.send(
-                    input=f"Memory: {photo['desc']} on {photo['date']}", 
-                    end_of_turn=False
-                )
-                # 2. Send the actual image bytes
-                await session.send(
-                    input=types.Part.from_bytes(
-                        data=base64.b64decode(photo['data']),
-                        mime_type=photo['mime']
-                    ),
-                    end_of_turn=False
-                )
+                parts.append(types.Part.from_text(text=f"Memory: {photo['desc']} on {photo['date']}"))
+                parts.append(types.Part.from_bytes(
+                    data=base64.b64decode(photo['data']),
+                    mime_type=photo['mime']
+                ))
             
-            # ✅ Finally, send the greeting and set end_of_turn=True to let the AI speak!
-            await session.send(
-                input=f"Hello, I am {user_name}. Please say hello.", 
-                end_of_turn=True
+            parts.append(types.Part.from_text(text=f"Hello, I am {user_name}. Please say hello."))
+
+            # Wrap it in the LiveClientContent object
+            client_content = types.LiveClientContent(
+                turns=[
+                    types.Content(
+                        role="user",
+                        parts=parts
+                    )
+                ],
+                turn_complete=True
             )
+
+            # Send the properly wrapped context
+            await session.send(input=client_content, end_of_turn=True)
             print("✅ Context sent. Mode: LISTENING")
 
             # TASK: Receive from Gemini
@@ -163,6 +164,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     data = await websocket.receive_json()
                     
                     if data['type'] == 'frame':
+                        # ✅ FIX: Wrap frames correctly
                         await session.send(
                             input=types.LiveClientRealtimeInput(
                                 media_chunks=[
@@ -179,6 +181,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         if debug_audio_counter % 50 == 0:
                             print(f"🎤 Audio Active: Received {debug_audio_counter} chunks")
                             
+                        # ✅ FIX: Wrap audio chunks correctly
                         await session.send(
                             input=types.LiveClientRealtimeInput(
                                 media_chunks=[
