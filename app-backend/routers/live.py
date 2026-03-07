@@ -6,8 +6,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 from google.cloud import firestore
-from google.cloud import storage
-from jose import jwt
 
 router = APIRouter()
 
@@ -17,13 +15,7 @@ BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
 
 db = firestore.Client(project=PROJECT_ID)
-storage_client = storage.Client(project=PROJECT_ID)
-bucket = storage_client.bucket(BUCKET_NAME)
 client = genai.Client(vertexai=True, project=PROJECT_ID, location=LOCATION)
-
-def get_gcs_base64(filename):
-    blob = bucket.blob(filename)
-    return base64.b64encode(blob.download_as_bytes()).decode('utf-8')
 
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
@@ -33,96 +25,63 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         # 1. Validate Token
         token = websocket.query_params.get("token")
-        if not token:
-            print("❌ No token provided")
-            await websocket.close(code=1008)
-            return
-
+        import jose.jwt as jwt
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
-            if not user_id:
-                raise ValueError("userId missing")
         except Exception as e:
             print(f"❌ Token Error: {e}")
             await websocket.close(code=1008)
             return
 
-        # 2. Load User Context
-        print(f"👤 Loading context for user: {user_id}...")
+        # 2. Load User Info
         user_name = user_id
         user_doc = db.collection('users').document(user_id).get()
         if user_doc.exists:
             user_name = user_doc.to_dict().get('name', user_id)
 
+        # 3. Build System Instructions (Inject GCS URLs directly!)
+        # We don't download the images. We just tell Gemini where they are.
+        system_parts = [
+            types.Part.from_text(text=f"You are MemoryMate. User: {user_name}."),
+            types.Part.from_text(text="1. Greet the user warmly.\n2. Listen to their voice and watch the video stream.\n3. Match their video against the following stored memories:")
+        ]
+
         photos_ref = db.collection('users').document(user_id).collection('photos').stream()
-        reference_photos = []
-        
         for doc in photos_ref:
             data = doc.to_dict()
             if 'filename' in data:
-                try:
-                    b64 = get_gcs_base64(data['filename'])
-                    reference_photos.append({
-                        "data": b64,
-                        "mime": "image/jpeg",
-                        "desc": data.get('description', ''),
-                        "date": data.get('photoDate', '')
-                    })
-                except Exception as e:
-                    print(f"⚠️ Error reading photo {data['filename']}: {e}")
+                # Add Description
+                system_parts.append(types.Part.from_text(
+                    text=f"\nMemory: {data.get('description', 'Unknown')} on {data.get('photoDate', 'Unknown')}"
+                ))
+                # Add Image URL (Vertex AI reads gs:// links natively!)
+                system_parts.append(types.Part.from_uri(
+                    uri=f"gs://{BUCKET_NAME}/{data['filename']}",
+                    mime_type="image/jpeg"
+                ))
 
-        # 3. Configure Gemini
+        # 4. Configure Gemini
         MODEL_ID = "gemini-live-2.5-flash-native-audio" 
         
-        SYSTEM_INSTRUCTION = f"""
-        You are MemoryMate. User: {user_name}.
-        1. Greet the user warmly immediately.
-        2. Listen to the user's voice and watch the video stream.
-        3. If you see a photo match, mention the Date/Description.
-        """
-
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name="Aoede"
-                    )
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
                 )
             ),
-            system_instruction=types.Content(parts=[types.Part.from_text(text=SYSTEM_INSTRUCTION)])
+            # Load the images and rules directly into the AI's brain on startup
+            system_instruction=types.Content(parts=system_parts)
         )
 
-        # 4. Connect Loop
+        # 5. Connect Loop
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print(f"🟢 Connected to {MODEL_ID}")
 
-            # ✅ FIX: Construct the exact LiveClientContent object the SDK demands
-            parts = []
-            for photo in reference_photos:
-                parts.append(types.Part.from_text(text=f"Memory: {photo['desc']} on {photo['date']}"))
-                parts.append(types.Part.from_bytes(
-                    data=base64.b64decode(photo['data']),
-                    mime_type=photo['mime']
-                ))
-            
-            parts.append(types.Part.from_text(text=f"Hello, I am {user_name}. Please say hello."))
-
-            # Wrap it in the LiveClientContent object
-            client_content = types.LiveClientContent(
-                turns=[
-                    types.Content(
-                        role="user",
-                        parts=parts
-                    )
-                ],
-                turn_complete=True
-            )
-
-            # Send the properly wrapped context
-            await session.send(input=client_content, end_of_turn=True)
-            print("✅ Context sent. Mode: LISTENING")
+            # Because photos are in the System Instructions, we only need to send a simple string!
+            await session.send(input=f"Hello, I am {user_name}. Please say hello.", end_of_turn=True)
+            print("✅ Ready. Mode: LISTENING")
 
             # TASK: Receive from Gemini
             async def receive_loop():
@@ -163,35 +122,22 @@ async def websocket_endpoint(websocket: WebSocket):
                 while True:
                     data = await websocket.receive_json()
                     
+                    # The newest Python SDK accepts a simple dictionary for media chunks
                     if data['type'] == 'frame':
-                        # ✅ FIX: Wrap frames correctly
-                        await session.send(
-                            input=types.LiveClientRealtimeInput(
-                                media_chunks=[
-                                    types.Blob(
-                                        mime_type="image/jpeg",
-                                        data=base64.b64decode(data['frameBase64'])
-                                    )
-                                ]
-                            )
-                        )
+                        await session.send(input={
+                            "mime_type": "image/jpeg",
+                            "data": base64.b64decode(data['frameBase64'])
+                        })
                     
                     elif data['type'] == 'audio':
                         debug_audio_counter += 1
                         if debug_audio_counter % 50 == 0:
                             print(f"🎤 Audio Active: Received {debug_audio_counter} chunks")
                             
-                        # ✅ FIX: Wrap audio chunks correctly
-                        await session.send(
-                            input=types.LiveClientRealtimeInput(
-                                media_chunks=[
-                                    types.Blob(
-                                        mime_type="audio/pcm;rate=16000",
-                                        data=base64.b64decode(data['audioBase64'])
-                                    )
-                                ]
-                            )
-                        )
+                        await session.send(input={
+                            "mime_type": "audio/pcm;rate=16000",
+                            "data": base64.b64decode(data['audioBase64'])
+                        })
 
             except WebSocketDisconnect:
                 print("🔌 Client disconnected naturally")
