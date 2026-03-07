@@ -177,30 +177,37 @@ export default function MemoryMateApp() {
   // This function now uses AudioWorklet for better performance and to avoid deprecated APIs.
 const startMicCapture = async () => {
   try {
-   if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-    console.log("WebSocket not ready, skipping mic capture.");
-    return;
-   }
+   if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
+   // 1. Get Microphone Stream
    const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
      channelCount: 1,
      echoCancellation: true,
-     noiseSuppression: true,
      autoGainControl: true,
-     sampleRate: 16000
+     noiseSuppression: true,
+     // Try to request 16k, but browsers might ignore this
+     sampleRate: 16000 
     }
    });
    micStreamRef.current = stream;
 
-   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+   // 2. Initialize AudioContext with explicit sampleRate
+   // This forces the browser to resample if the hardware is 48k
+   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ 
+     sampleRate: 16000,
+   });
+   
    audioContextMicRef.current = audioCtx;
+
+   // DEBUG LOG: Confirm the rate is actually 16000
+   console.log(`🎤 Audio Context Sample Rate: ${audioCtx.sampleRate}Hz`);
 
    if (audioCtx.state === 'suspended') {
     await audioCtx.resume();
    }
 
-   // Load processor from Blob string
+   // 3. Load Embedded Processor
    const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
    const workletUrl = URL.createObjectURL(blob);
    await audioCtx.audioWorklet.addModule(workletUrl);
@@ -210,7 +217,7 @@ const startMicCapture = async () => {
 
    const source = audioCtx.createMediaStreamSource(stream);
 
-   // --- Helper to convert ArrayBuffer to Base64 ---
+   // Optimized Base64 Helper
    const arrayBufferToBase64 = (buffer) => {
      let binary = '';
      const bytes = new Uint8Array(buffer);
@@ -221,25 +228,25 @@ const startMicCapture = async () => {
      return window.btoa(binary);
    };
 
-   // --- Handle messages from Worklet ---
+   // 4. Handle Audio Data
    processorNode.port.onmessage = (event) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     
     const { type, int16Buffer } = event.data;
     
     if (type === 'audio_data' && int16Buffer) {
-      // Convert raw buffer to Base64 here in the main thread
+      // Convert and send
       const audioBase64 = arrayBufferToBase64(int16Buffer);
       wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
     }
    };
 
    source.connect(processorNode);
-   console.log("🎤 Microphone capture started successfully.");
+   console.log("🎤 Microphone capture started.");
 
   } catch (err) {
-   console.error("Microphone access denied or failed:", err);
-   setLiveVideoError("Could not access microphone.");
+   console.error("Microphone error:", err);
+   setLiveVideoError("Microphone access failed.");
   }
  };
 
