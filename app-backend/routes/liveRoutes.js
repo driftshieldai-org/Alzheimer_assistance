@@ -62,7 +62,7 @@ export default function (app) {
       const location = process.env.GCP_REGION || "us-central1";
       
       // Use the standard Live API model name based on current availability
-      const model = "gemini-2.0-flash-exp"; 
+      const model = "gemini-live-2.5-flash-native-audio"; 
       const ai = new GoogleGenAI({ vertexai: true, project: projectId, location: location });
       
       const session = await ai.live.connect({
