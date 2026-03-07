@@ -98,24 +98,27 @@ async def websocket_endpoint(websocket: WebSocket):
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print(f"🟢 Connected to {MODEL_ID}")
 
-            # Prepare Initial Context
-            # The Live API expects the input to be exactly a list of `Part` objects,
-            # NOT wrapped in `Content` or dictionaries.
-            initial_parts = []
+            # ✅ FIX: Send Context Sequentially
+            # We send each piece of text and each photo one by one.
+            # We use end_of_turn=False to tell the AI "wait, I'm still uploading".
             for photo in reference_photos:
-                initial_parts.append(types.Part.from_text(text=f"Memory: {photo['desc']} on {photo['date']}"))
-                initial_parts.append(
-                    types.Part.from_bytes(
+                # 1. Send the description string
+                await session.send(
+                    input=f"Memory: {photo['desc']} on {photo['date']}", 
+                    end_of_turn=False
+                )
+                # 2. Send the actual image bytes
+                await session.send(
+                    input=types.Part.from_bytes(
                         data=base64.b64decode(photo['data']),
                         mime_type=photo['mime']
-                    )
+                    ),
+                    end_of_turn=False
                 )
             
-            initial_parts.append(types.Part.from_text(text=f"Hello, I am {user_name}. Please say hello."))
-
-            # ✅ FIX 1: Send the list of Parts directly. 
+            # ✅ Finally, send the greeting and set end_of_turn=True to let the AI speak!
             await session.send(
-                input=initial_parts,
+                input=f"Hello, I am {user_name}. Please say hello.", 
                 end_of_turn=True
             )
             print("✅ Context sent. Mode: LISTENING")
@@ -160,7 +163,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     data = await websocket.receive_json()
                     
                     if data['type'] == 'frame':
-                        # ✅ FIX 2: Send Realtime Input exactly as a LiveClientRealtimeInput object
                         await session.send(
                             input=types.LiveClientRealtimeInput(
                                 media_chunks=[
@@ -177,7 +179,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         if debug_audio_counter % 50 == 0:
                             print(f"🎤 Audio Active: Received {debug_audio_counter} chunks")
                             
-                        # ✅ FIX 3: Same format for Audio
                         await session.send(
                             input=types.LiveClientRealtimeInput(
                                 media_chunks=[
