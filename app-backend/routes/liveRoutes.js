@@ -153,9 +153,9 @@ export default function (app) {
     console.log("✅ Reference photos sent successfully.");
    }
 
-   // Setup 2: Trigger initial AI greeting (Notice turnComplete is TRUE here!)
+   // Setup 2: Trigger initial AI greeting
    await session.sendClientContent({
-     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${userName}. I am turning on my camera and microphone now. Let me know when you are ready.` }] }],
+     turns: [{ role: "user", parts: [{ text: `Hello, my name is ${}. I am turning on my camera and microphone now. Let me know when you are ready.` }] }],
      turnComplete: true 
    });
 
@@ -174,15 +174,10 @@ export default function (app) {
       console.log("🎤 User started speaking. (Frontend muted AI)");
      }
      else if (data.type === "end_of_turn") {
-      console.log("🤫 User stopped speaking. Forcing Gemini to respond...");
+      console.log("🤫 User stopped speaking. Forcing Gemini to analyze Audio/Video buffer...");
       
-      // FORCE THE RESPONSE: 
-      // Sending a blank space tells the AI "I am done talking."
-      // Because the text is blank, it will automatically look at your microphone audio and video frames to generate its answer!
-      await session.sendClientContent({ 
-          turns: [{ role: "user", parts: [{ text: " " }] }], 
-          turnComplete: true 
-      });
+      // THE FIX: Sending turnComplete WITHOUT text ensures Gemini actually listens to the audio buffer!
+      await session.sendClientContent({ turnComplete: true });
      }
     } catch (sendErr) {
       console.error("Error sending to Gemini session:", sendErr);
