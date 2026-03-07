@@ -74,7 +74,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     print(f"⚠️ Error reading photo {data['filename']}: {e}")
 
         # 3. Configure Gemini
-        MODEL_ID = "gemini-2.0-flash-001" 
+        MODEL_ID = "gemini-live-2.5-flash-native-audio" 
         
         SYSTEM_INSTRUCTION = f"""
         You are MemoryMate. User: {user_name}.
