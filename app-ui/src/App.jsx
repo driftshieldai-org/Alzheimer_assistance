@@ -10,7 +10,8 @@ import {
   Upload, 
   CameraIcon,
   PlayIcon, 
-  StopCircle 
+  StopCircle ,
+  ImageIcon
 } from 'lucide-react';
 
 const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
