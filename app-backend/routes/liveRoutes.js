@@ -168,26 +168,20 @@ export default function (app) {
       await session.sendRealtimeInput([{ mimeType: "image/jpeg", data: data.frameBase64 }]);
      } 
      else if (data.type === "audio") {
-      audioChunkCount++;
-      // Log every ~1 second to verify audio is flowing
-      if (audioChunkCount % 4 === 0) {
-          console.log(`🎵 Streaming raw audio to Gemini... (Chunk ${audioChunkCount})`);
-      }
+      // Pure audio pass-through to Gemini
       await session.sendRealtimeInput([{ mimeType: "audio/pcm;rate=16000", data: data.audioBase64 }]);
      }
      else if (data.type === "speech_start") {
       console.log("🎤 User started speaking. (Frontend muted AI audio playback)");
-      // DO NOT send anything to Gemini here.
      }
      else if (data.type === "end_of_turn") {
       console.log("🤫 User stopped speaking. Waiting for Gemini's native VAD to respond...");
-      // DO NOT send turnComplete to Gemini here. The server natively answers when audio goes silent.
      }
     } catch (sendErr) {
       console.error("Error sending to Gemini session:", sendErr);
     }
    });
-
+   
    ws.on('close', () => {
     console.log("Client WS closed connection.");
    });
