@@ -130,8 +130,10 @@ Ask them if they are looking for something else and respond accordingly.
                                 if part.inline_data:
                                     b64_audio = base64.b64encode(part.inline_data.data).decode("utf-8")
                                     await websocket.send_json({"type": "audioResponse", "audioBase64": b64_audio})
+                                    log(f"🔊 Sent audio response ({len(part.inline_data.data)} bytes)")
                                 if part.text:
                                     await websocket.send_json({"type": "textResponse", "text": part.text})
+                                    log(f"📝 Sent text response: {part.text}")
 
                 except asyncio.CancelledError:
                     pass
@@ -195,6 +197,7 @@ Ask them if they are looking for something else and respond accordingly.
                             audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
                         )
                         last_audio = asyncio.get_event_loop().time()
+                        log(f"🎤 Audio chunk received ({len(audio_bytes)} bytes)")
 
                     # Handle video frames from client
                     elif data["type"] == "frame":
@@ -202,7 +205,7 @@ Ask them if they are looking for something else and respond accordingly.
                         await session.send_realtime_input(
                             media=types.Blob(data=frame_bytes, mime_type="image/jpeg")
                         )
-                        log("📹 Frame sent to Gemini Live")
+                        log(f"📹 Frame sent to Gemini Live ({len(frame_bytes)} bytes)")
 
             finally:
                 session_alive = False
