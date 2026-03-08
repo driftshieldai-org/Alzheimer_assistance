@@ -7,24 +7,15 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 from google.cloud import firestore
-from google.cloud import storage
 import jose.jwt as jwt
 
-os.environ['PYTHONUNBUFFERED'] = '1'
-
-def log(msg):
-    print(msg, flush=True)
-    
 router = APIRouter()
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 LOCATION = os.environ.get("GCP_REGION", "us-central1")
-BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
 
 db = firestore.Client(project=PROJECT_ID)
-storage_client = storage.Client(project=PROJECT_ID)
-bucket = storage_client.bucket(BUCKET_NAME)
 
 client = genai.Client(
     vertexai=True,
@@ -39,7 +30,7 @@ MODEL_ID = "gemini-live-2.5-flash-native-audio"
 async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
-    log("🔌 Client connected")
+    print("🔌 Client connected")
 
     session_alive = True
 
@@ -52,18 +43,18 @@ async def websocket_endpoint(websocket: WebSocket):
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
         except Exception:
-            log("❌ Invalid token")
+            print("❌ Invalid token")
             await websocket.close(code=1008)
             return
 
-        # ---------------- LOAD USER ----------------
+        # ---------------- USER INFO ----------------
         user_name = user_id
 
         try:
             user_doc = db.collection("users").document(user_id).get()
             if user_doc.exists:
                 user_name = user_doc.to_dict().get("name", user_id)
-        except Exception:
+        except:
             pass
 
         # ---------------- LOAD MEMORIES ----------------
@@ -79,6 +70,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             for doc in photos:
                 data = doc.to_dict()
+
                 description = data.get("description")
                 date = data.get("photoDate")
 
@@ -88,22 +80,22 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as e:
             print("Memory load error:", e)
 
-        memories_text = "\n".join(memories) if memories else "No memories stored."
+        memories_text = "\n".join(memories) if memories else "No stored memories."
 
         # ---------------- SYSTEM PROMPT ----------------
         system_prompt = f"""
-You are MemoryMate, a compassionate assistant helping people with memory loss.
+You are MemoryMate, a compassionate AI helping someone with memory loss.
 
 User name: {user_name}
 
 Known memories:
 {memories_text}
 
-Rules:
-- Speak slowly and clearly
+Guidelines:
+- Speak slowly
+- Be gentle and supportive
 - Keep responses short
-- If the camera shows something familiar mention it
-- If something matches a memory gently remind the user
+- If something from the camera matches a memory mention it kindly
 """
 
         # ---------------- GEMINI CONFIG ----------------
@@ -124,15 +116,15 @@ Rules:
             )
         )
 
-        # ---------------- GEMINI SESSION ----------------
+        # ---------------- CONNECT GEMINI ----------------
         async with client.aio.live.connect(
             model=MODEL_ID,
             config=config
         ) as session:
 
-            log("🟢 Gemini Live connected")
+            print("🟢 Gemini Live connected")
 
-            # initial greeting
+            # greeting
             await session.send_client_content(
                 turns=[
                     types.Content(
@@ -169,6 +161,7 @@ Rules:
 
                                 for part in server.model_turn.parts:
 
+                                    # audio response
                                     if part.inline_data:
 
                                         audio = base64.b64encode(
@@ -182,6 +175,7 @@ Rules:
                                             }
                                         )
 
+                                    # text response
                                     if part.text:
 
                                         await websocket.send_json(
@@ -198,8 +192,9 @@ Rules:
             receive_task = asyncio.create_task(receive_loop())
 
             # ---------------- TURN DETECTION ----------------
-            last_audio_time = asyncio.get_event_loop().time()
-            TURN_TIMEOUT = 1.0
+            TURN_TIMEOUT = 1.2
+            last_audio_time = 0
+            user_spoke = False
 
             # ---------------- MAIN LOOP ----------------
             try:
@@ -215,29 +210,32 @@ Rules:
 
                     except asyncio.TimeoutError:
 
-                        if asyncio.get_event_loop().time() - last_audio_time > TURN_TIMEOUT:
+                        if user_spoke and (
+                            asyncio.get_event_loop().time() - last_audio_time
+                            > TURN_TIMEOUT
+                        ):
 
-                            log("🧠 Sending turn_complete")
+                            print("🧠 Sending turn_complete")
 
                             await session.send_client_content(
                                 turns=[],
                                 turn_complete=True
                             )
 
-                            last_audio_time = asyncio.get_event_loop().time() + 100
+                            user_spoke = False
 
                         continue
 
                     except WebSocketDisconnect:
-                        log("🔌 Client disconnected")
+                        print("🔌 Client disconnected")
                         break
 
-                    # ------------ AUDIO INPUT ------------
+                    # ---------- AUDIO ----------
                     if data["type"] == "audio":
 
-                        audio_bytes = base64.b64decode(data["audioBase64"])
-
-                        last_audio_time = asyncio.get_event_loop().time()
+                        audio_bytes = base64.b64decode(
+                            data["audioBase64"]
+                        )
 
                         await session.send_realtime_input(
                             media=types.Blob(
@@ -246,10 +244,15 @@ Rules:
                             )
                         )
 
-                    # ------------ CAMERA FRAME ------------
+                        last_audio_time = asyncio.get_event_loop().time()
+                        user_spoke = True
+
+                    # ---------- CAMERA ----------
                     elif data["type"] == "frame":
 
-                        frame_bytes = base64.b64decode(data["frameBase64"])
+                        frame_bytes = base64.b64decode(
+                            data["frameBase64"]
+                        )
 
                         await session.send_realtime_input(
                             media=types.Blob(
@@ -264,7 +267,6 @@ Rules:
             finally:
 
                 session_alive = False
-
                 receive_task.cancel()
 
                 try:
@@ -272,10 +274,10 @@ Rules:
                 except:
                     pass
 
-                log("🧹 Session cleaned")
+                print("🧹 Session cleaned")
 
     except Exception:
-        log("🔥 CRITICAL ERROR")
+        print("🔥 CRITICAL ERROR")
         traceback.print_exc()
 
     finally:
