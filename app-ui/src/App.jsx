@@ -11,8 +11,7 @@ class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
     this.buffer = [];
-    this.BUFFER_SIZE = 1600; // 100ms at 16kHz
-    this.gain = 10.0; // Amplify audio
+    this.BUFFER_SIZE = 1600;
   }
 
   process(inputs, outputs, parameters) {
@@ -28,13 +27,11 @@ class AudioProcessor extends AudioWorkletProcessor {
     while (this.buffer.length >= this.BUFFER_SIZE) {
       const chunk = this.buffer.splice(0, this.BUFFER_SIZE);
       
-      // Convert to PCM16 Little Endian
       const pcmData = new ArrayBuffer(chunk.length * 2);
       const view = new DataView(pcmData);
       
       for (let i = 0; i < chunk.length; i++) {
-        let sample = chunk[i] * this.gain;
-        sample = Math.max(-1, Math.min(1, sample));
+        const sample = Math.max(-1, Math.min(1, chunk[i]));
         const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
         view.setInt16(i * 2, int16, true);
       }
@@ -172,9 +169,9 @@ export default function MemoryMateApp() {
         audio: {
           channelCount: 1,
           sampleRate: 16000,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
         }
       });
       micStreamRef.current = stream;
