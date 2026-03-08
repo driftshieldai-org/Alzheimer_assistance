@@ -71,7 +71,7 @@ async def upload_photo(
         gemini_description = ai_response.text
         print(f"✅ Generated detailed Gemini description for {filename}")
     except Exception as e:
-        print(f"⚠️ Gemini Vision Error during upload: {}")
+        print(f"⚠️ Gemini Vision Error during upload: {e}")
         # Fallback to the user's basic description if the AI fails
         gemini_description = description 
         
