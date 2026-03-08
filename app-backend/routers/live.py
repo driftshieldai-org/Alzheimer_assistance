@@ -29,7 +29,7 @@ client = genai.Client(
     location=LOCATION
 )
 
-MODEL_ID = "gemini-live-2.5-flash-preview-native-audio"
+MODEL_ID = "gemini-live-2.5-flash-native-audio"
 
 
 @router.websocket("/api/live/ws/live/process-stream")
