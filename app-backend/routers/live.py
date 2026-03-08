@@ -105,27 +105,9 @@ Instructions:
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print("🟢 Connected to Gemini Live")
 
-            # Send initial greeting prompt
-            try:
-                await session.send_client_content(
-                    turns=[
-                        types.Content(
-                            role="user",
-                            parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")]
-                        )
-                    ],
-                    turn_complete=True
-                )
-                print("✅ Initial greeting sent")
-            except Exception as e:
-                print(f"❌ Failed to send initial greeting: {e}")
-                await websocket.close(code=1011)
-                return
-
             # 7️⃣ Single receive loop - handles ALL responses from Gemini
             async def receive_loop():
                 nonlocal session_alive
-                greeting_complete = False
                 
                 try:
                     async for response in session.receive():
@@ -142,6 +124,7 @@ Instructions:
                             
                             # Handle interruption
                             if server_content.interrupted:
+                                print("🔇 Interrupted by user")
                                 try:
                                     await websocket.send_json({"type": "interrupted"})
                                 except:
@@ -155,6 +138,7 @@ Instructions:
                                     if part.inline_data:
                                         audio_bytes = part.inline_data.data
                                         b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+                                        print(f"🔊 Sending audio response: {len(audio_bytes)} bytes")
                                         try:
                                             await websocket.send_json({
                                                 "type": "audioResponse",
@@ -166,6 +150,7 @@ Instructions:
                                             break
                                             
                                     if part.text:
+                                        print(f"📝 Text response: {part.text[:100]}...")
                                         try:
                                             await websocket.send_json({
                                                 "type": "textResponse",
@@ -178,11 +163,7 @@ Instructions:
                             
                             # Log turn completion
                             if server_content.turn_complete:
-                                if not greeting_complete:
-                                    greeting_complete = True
-                                    print("✅ Greeting complete, ready for conversation")
-                                else:
-                                    print("✅ Turn complete")
+                                print("✅ Turn complete")
                                             
                 except asyncio.CancelledError:
                     print("📭 Receive loop cancelled")
@@ -194,8 +175,23 @@ Instructions:
             # Start receive loop as background task
             receive_task = asyncio.create_task(receive_loop())
             
-            # Give time for greeting to be sent and start receiving
-            await asyncio.sleep(0.1)
+            # Wait for setup to complete
+            await asyncio.sleep(0.2)
+
+            # Send initial greeting prompt using send() method
+            try:
+                await session.send(
+                    input=f"Hello! I am {user_name}. Please greet me warmly and ask how you can help me today.",
+                    end_of_turn=True
+                )
+                print("✅ Initial greeting sent")
+            except Exception as e:
+                print(f"❌ Failed to send initial greeting: {e}")
+                traceback.print_exc()
+                session_alive = False
+                receive_task.cancel()
+                await websocket.close(code=1011)
+                return
             
             print("🎤 Ready to receive realtime audio/video")
 
@@ -206,13 +202,11 @@ Instructions:
             try:
                 while session_alive:
                     try:
-                        # Use timeout to periodically check session_alive
                         data = await asyncio.wait_for(
                             websocket.receive_json(),
                             timeout=2.0
                         )
                     except asyncio.TimeoutError:
-                        # No data, just continue and check session_alive
                         continue
                     except WebSocketDisconnect:
                         print("🔌 Client WebSocket disconnected")
@@ -227,10 +221,11 @@ Instructions:
                             audio_chunk_count += 1
                             
                             if audio_chunk_count % 100 == 0:
-                                print(f"🎤 Audio chunks sent: {audio_chunk_count}")
+                                print(f"🎤 Audio chunks sent: {audio_chunk_count}, size: {len(audio_bytes)}")
                             
+                            # Use separate audio parameter
                             await session.send_realtime_input(
-                                media=types.Blob(
+                                audio=types.Blob(
                                     data=audio_bytes,
                                     mime_type="audio/pcm;rate=16000"
                                 )
@@ -251,10 +246,11 @@ Instructions:
                             frame_count += 1
                             
                             if frame_count % 10 == 0:
-                                print(f"📹 Video frames sent: {frame_count}")
+                                print(f"📹 Video frames sent: {frame_count}, size: {len(frame_bytes)}")
                             
+                            # Use separate video parameter
                             await session.send_realtime_input(
-                                media=types.Blob(
+                                video=types.Blob(
                                     data=frame_bytes,
                                     mime_type="image/jpeg"
                                 )
