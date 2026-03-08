@@ -9,6 +9,12 @@ from google.genai import types
 from google.cloud import firestore
 import jose.jwt as jwt
 
+os.environ['PYTHONUNBUFFERED'] = '1'
+
+def log(msg):
+    print(msg, flush=True)
+
+
 router = APIRouter()
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -30,7 +36,7 @@ MODEL_ID = "gemini-live-2.5-flash-preview-native-audio"
 async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
-    print("🔌 Client connected")
+    log("🔌 Client connected")
 
     session_alive = True
 
@@ -43,7 +49,7 @@ async def websocket_endpoint(websocket: WebSocket):
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
         except Exception:
-            print("❌ Invalid token")
+            log("❌ Invalid token")
             await websocket.close(code=1008)
             return
 
@@ -99,8 +105,6 @@ Keep responses short.
 
             response_modalities=["AUDIO"],
 
-            media_resolution="low",
-
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -120,7 +124,7 @@ Keep responses short.
             config=config
         ) as session:
 
-            print("🟢 Gemini Live connected")
+            log("🟢 Gemini Live connected")
 
             # greeting
             await session.send_client_content(
@@ -211,7 +215,7 @@ Keep responses short.
                             > AUDIO_TIMEOUT
                         ):
 
-                            print("🎤 audio_stream_end")
+                            log("🎤 audio_stream_end")
 
                             await session.send_realtime_input(
                                 audio_stream_end=True
