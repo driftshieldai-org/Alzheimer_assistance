@@ -157,20 +157,62 @@ Instructions:
             )
             print("✅ Initial greeting sent")
             
-            # Wait for greeting response before accepting realtime input
+            # Wait for greeting response
             await asyncio.sleep(3)
             print("🎤 Ready for realtime input")
 
+            # Audio buffering for turn detection
+            audio_buffer = []
+            last_audio_time = None
+            SILENCE_THRESHOLD = 1.5  # seconds of silence to trigger end of turn
+            
             # Process client input
             audio_chunk_count = 0
             frame_count = 0
+            
+            async def check_silence_and_send():
+                """Background task to detect silence and send end_of_turn"""
+                nonlocal audio_buffer, last_audio_time, session_alive
+                
+                while session_alive:
+                    await asyncio.sleep(0.5)
+                    
+                    if last_audio_time and len(audio_buffer) > 0:
+                        time_since_last_audio = asyncio.get_event_loop().time() - last_audio_time
+                        
+                        if time_since_last_audio >= SILENCE_THRESHOLD:
+                            # User stopped speaking, send accumulated audio with end_of_turn
+                            print(f"🎙️ Silence detected, sending {len(audio_buffer)} audio chunks")
+                            
+                            try:
+                                # Send any remaining buffered audio
+                                for chunk_b64 in audio_buffer:
+                                    await session.send(
+                                        input={
+                                            "data": chunk_b64,
+                                            "mime_type": "audio/pcm;rate=16000"
+                                        },
+                                        end_of_turn=False
+                                    )
+                                
+                                # Signal end of turn
+                                await session.send(input="", end_of_turn=True)
+                                print("✅ End of turn sent")
+                                
+                            except Exception as e:
+                                print(f"⚠️ Error sending buffered audio: {e}")
+                            
+                            audio_buffer = []
+                            last_audio_time = None
+            
+            silence_task = asyncio.create_task(check_silence_and_send())
             
             try:
                 while session_alive:
                     try:
                         data = await asyncio.wait_for(
                             websocket.receive_json(),
-                            timeout=2.0
+                            timeout=0.5
                         )
                     except asyncio.TimeoutError:
                         continue
@@ -180,13 +222,13 @@ Instructions:
 
                     if data["type"] == "audio":
                         try:
-                            audio_bytes = base64.b64decode(data["audioBase64"])
                             audio_chunk_count += 1
+                            last_audio_time = asyncio.get_event_loop().time()
                             
                             if audio_chunk_count % 100 == 0:
                                 print(f"🎤 Audio: {audio_chunk_count} chunks")
                             
-                            # Method 1: Using dict format
+                            # Send audio immediately
                             await session.send(
                                 input={
                                     "data": data["audioBase64"],
@@ -194,6 +236,13 @@ Instructions:
                                 },
                                 end_of_turn=False
                             )
+                            
+                            # Also buffer for silence detection
+                            audio_buffer.append(data["audioBase64"])
+                            
+                            # Keep buffer size manageable
+                            if len(audio_buffer) > 200:
+                                audio_buffer = audio_buffer[-100:]
                             
                         except Exception as e:
                             print(f"⚠️ Audio error: {e}")
@@ -208,7 +257,6 @@ Instructions:
                             if frame_count % 10 == 0:
                                 print(f"📹 Frames: {frame_count}")
                             
-                            # Send image using dict format
                             await session.send(
                                 input={
                                     "data": data["frameBase64"],
@@ -222,11 +270,20 @@ Instructions:
                             if "closed" in str(e).lower() or "1011" in str(e):
                                 session_alive = False
                                 break
+                    
+                    # Handle explicit end of turn from client
+                    elif data["type"] == "endTurn":
+                        print("🎙️ Client signaled end of turn")
+                        try:
+                            await session.send(input="", end_of_turn=True)
+                        except Exception as e:
+                            print(f"⚠️ End turn error: {e}")
 
             except Exception as e:
                 print(f"❌ Main loop error: {e}")
             finally:
                 session_alive = False
+                silence_task.cancel()
                 receive_task.cancel()
                 print(f"🔌 Done. Audio: {audio_chunk_count}, Frames: {frame_count}")
 
