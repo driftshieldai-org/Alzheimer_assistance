@@ -57,52 +57,60 @@ async def websocket_endpoint(websocket: WebSocket):
                 
         print(f"✅ Loaded user info for: {user_name}", flush=True)
 
-        # 3️⃣ Define the Tool (Fast Firestore-only check)
-        def check_past_history() -> str:
-            """Fetches the user's past memories and photos from their history.
-            Call this tool to get a highly detailed visual list of the user's past memories.
+        # 3️⃣ Define the Tool (Fully Async + Reasoning Anchor)
+        async def check_past_history(what_you_see: str) -> str:
+            """Fetches the user's past memories to see if they match the live video.
+            Call this tool whenever the user asks if you recognize a place, object, or person.
+            
+            Args:
+                what_you_see: A brief description of what you currently see in the user's live video stream.
             """
-            print("🛠️ [TOOL] check_past_history called by Gemini automatically!", flush=True)
+            print(f"🛠️ [TOOL] Gemini called history. Gemini currently sees: '{what_you_see}'", flush=True)
+            
+            # Helper function to run synchronous Firestore in a background thread
+            def fetch_from_firestore():
+                docs = db.collection("users").document(user_id).collection("photos").stream()
+                return [doc.to_dict() for doc in docs]
+
             try:
-                memories_context = []
-                # Fetch directly from Firestore (Takes ~50 milliseconds)
-                photos_ref = db.collection("users").document(user_id).collection("photos").stream()
+                # ⚡ This prevents the WebSocket from freezing!
+                photos_data = await asyncio.to_thread(fetch_from_firestore)
                 
-                for doc in photos_ref:
-                    data = doc.to_dict()
+                memories_context = []
+                for data in photos_data:
                     user_desc = data.get("description", "Unknown memory")
                     ai_desc = data.get("geminiDescription", "No detailed description available.")
                     date = data.get("photoDate", "Unknown date")
                     
-                    # Combine the user's label with the AI's detailed visual fingerprint
-                    full_context = f"Label: {user_desc} (Date: {date})\nVisual Details: {ai_desc}"
+                    full_context = f"Memory Label: {user_desc}\nDate: {date}\nVisual Fingerprint: {ai_desc}"
                     memories_context.append(full_context)
                 
                 if not memories_context:
-                    return "No past memories found in the user's history."
+                    return "Database is empty. No past memories found."
                 
-                # Separate memories clearly for the model
-                return "User's past memories context:\n\n" + "\n---\n".join(memories_context)
+                return "Here are the user's stored memories. Compare your 'what_you_see' description with these Visual Fingerprints:\n\n" + "\n---\n".join(memories_context)
                 
             except Exception as e:
                 print(f"❌ [TOOL ERROR] {e}", flush=True)
-                return f"Error accessing past history"
+                return f"Error accessing database: {e}"
 
-        # 4️⃣ System Instruction
+        # 4️⃣ System Instruction (Updated to enforce strict matching)
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
 User name: {user_name}
 
 Instructions:
 Your task is to act as a live conversational partner.
-1. Greet the user warmly by name at the beginning of the conversation.
-2. Wait for the user to speak or ask a question.
-3. You are receiving a LIVE VIDEO STREAM of the user's environment.
-4. If the user asks about a place, object, or person they are looking at, FIRST use the `check_past_history` tool to fetch their stored memories.
-5. **CRITICAL STEP:** The tool will return highly detailed visual descriptions of their past photos. Compare what you currently see in the LIVE VIDEO STREAM with these text descriptions.
-6. IF YOU RECOGNIZE a match between the live stream and the text descriptions, answer the user warmly using their original Label and Date. (e.g., "Yes! Based on your history, I recognize that as your friend's house from 2023.")
-7. IF YOU CANNOT find a match, explicitly state: "I am not able to find this in your past history." THEN, proceed to answer based solely on what you see using your general knowledge.
-8. Provide concise and compassionate answers. Speak clearly with a calm tone.
+1. Greet the user warmly by name at the beginning.
+2. You are receiving a LIVE VIDEO STREAM of the user's environment.
+3. If the user asks "Have I been here?", "Do you recognize this?", or "What is this?":
+   - FIRST, look carefully at the LIVE VIDEO STREAM.
+   - SECOND, immediately call the `check_past_history` tool. You must pass a description of what you see to the `what_you_see` argument.
+4. The tool will return a list of "Visual Fingerprints" from the user's past. 
+5. **CRITICAL MATCHING STEP:** Compare the live video stream to the text of the "Visual Fingerprints". Even if the angle or lighting is different, if the objects/places are the same, it is a match!
+6. IF YOU FIND A MATCH: Say "Yes, I recognize that!" and tell them their Memory Label and the Date.
+7. IF YOU DO NOT FIND A MATCH: Say "I don't see this in your stored memories," and then tell them what you see using your general knowledge.
+8. Be warm, concise, and conversational.
 """
         
         # 5️⃣ Gemini Live Config
