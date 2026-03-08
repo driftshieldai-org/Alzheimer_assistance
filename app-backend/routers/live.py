@@ -238,10 +238,11 @@ Instructions:
                             log("🎙️ End of turn - requesting response")
                             try:
                                 # Send a text prompt to trigger response
-                                await session.send(
-                                    input="Please respond to what I just said.",
-                                    end_of_turn=True
-                                )
+                                #await session.send(
+                                #    input="Please respond to what I just said.",
+                                #    end_of_turn=True
+                                #)
+                                await session.send(end_of_turn=True)
                                 has_audio_since_last_turn = False
                             except Exception as e:
                                 log(f"⚠️ End turn error: {e}")
