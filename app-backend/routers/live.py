@@ -78,7 +78,6 @@ Instructions:
                     )
                 )
             ),
-            automatic_activity_detection=True,
             system_instruction=system_instruction
             
         )
