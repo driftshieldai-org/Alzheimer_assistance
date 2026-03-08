@@ -3,8 +3,6 @@ import sys
 import asyncio
 import base64
 import traceback
-import struct
-import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
@@ -17,7 +15,6 @@ os.environ['PYTHONUNBUFFERED'] = '1'
 
 def log(msg):
     print(msg, flush=True)
-    sys.stdout.flush()
 
 router = APIRouter()
 
@@ -46,7 +43,6 @@ async def websocket_endpoint(websocket: WebSocket):
     receive_task = None
     
     try:
-        # Auth
         token = websocket.query_params.get("token")
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
@@ -56,13 +52,11 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=1008)
             return
 
-        # User info
         user_name = user_id
         user_doc = db.collection("users").document(user_id).get()
         if user_doc.exists:
             user_name = user_doc.to_dict().get("name", user_id)
 
-        # Memories
         memories = []
         for doc in db.collection("users").document(user_id).collection("photos").stream():
             data = doc.to_dict()
@@ -77,8 +71,8 @@ Stored memories:
 
 Instructions:
 - Greet warmly and be compassionate
-- Listen to audio and respond naturally  
-- Describe what you see in the camera
+- Respond naturally to what the user says
+- Describe what you see in images when shown
 - Connect visuals to stored memories when relevant
 - Speak clearly and concisely"""
 
@@ -97,7 +91,6 @@ Instructions:
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             log("🟢 Connected to Gemini Live")
 
-            # Receive loop
             async def receive_loop():
                 nonlocal session_alive
                 try:
@@ -122,6 +115,8 @@ Instructions:
                                             await websocket.send_json({"type": "audioResponse", "audioBase64": b64})
                                         except:
                                             session_alive = False
+                                    if part.text:
+                                        log(f"📝 Text: {part.text[:50]}")
                             if sc.turn_complete:
                                 log("✅ Turn complete")
                 except asyncio.CancelledError:
@@ -134,78 +129,59 @@ Instructions:
             await asyncio.sleep(0.2)
 
             # Initial greeting
-            await session.send(input=f"Hello, I am {user_name}. Please greet me.", end_of_turn=True)
+            await session.send(input=f"Hello, I am {user_name}. Please greet me warmly.", end_of_turn=True)
             log("✅ Greeting sent")
 
-            # Audio accumulation for batched sending
-            audio_chunks = []
-            last_audio_time = 0
-            BATCH_DURATION = 2.0  # Send audio every 2 seconds
-            
-            audio_count = 0
             frame_count = 0
+            last_frame_b64 = None
             
             log("🎤 Ready for input")
             
             try:
                 while session_alive:
-                    current_time = time.time()
-                    
-                    # Send accumulated audio periodically
-                    if audio_chunks and (current_time - last_audio_time) > BATCH_DURATION:
-                        combined = b''.join(audio_chunks)
-                        combined_b64 = base64.b64encode(combined).decode()
-                        
-                        # Check if there's actual audio content
-                        samples = struct.unpack(f'<{len(combined)//2}h', combined)
-                        max_level = max(abs(s) for s in samples) if samples else 0
-                        
-                        if max_level > 1000:  # Only send if there's actual speech
-                            log(f"📤 Sending audio batch: {len(combined)} bytes, level: {max_level}")
-                            try:
-                                await session.send(
-                                    input={"data": combined_b64, "mime_type": "audio/pcm;rate=16000"},
-                                    end_of_turn=True
-                                )
-                            except Exception as e:
-                                log(f"⚠️ Audio send error: {e}")
-                                if "1011" in str(e) or "closed" in str(e).lower():
-                                    session_alive = False
-                                    break
-                        
-                        audio_chunks = []
-                        last_audio_time = current_time
-                    
                     try:
-                        data = await asyncio.wait_for(websocket.receive_json(), timeout=0.2)
+                        data = await asyncio.wait_for(websocket.receive_json(), timeout=1.0)
                     except asyncio.TimeoutError:
                         continue
                     except WebSocketDisconnect:
                         log("🔌 Client disconnected")
                         break
 
-                    if data["type"] == "audio":
-                        audio_bytes = base64.b64decode(data["audioBase64"])
-                        audio_chunks.append(audio_bytes)
-                        audio_count += 1
-                        
-                        if not last_audio_time:
-                            last_audio_time = current_time
-                        
-                        if audio_count % 100 == 0:
-                            log(f"🎤 Audio chunks: {audio_count}")
+                    # Handle text from speech recognition
+                    if data["type"] == "text":
+                        text = data.get("text", "").strip()
+                        if text:
+                            log(f"💬 User: {text}")
+                            
+                            # Send last frame for context if available
+                            if last_frame_b64:
+                                try:
+                                    await session.send(
+                                        input={"data": last_frame_b64, "mime_type": "image/jpeg"},
+                                        end_of_turn=False
+                                    )
+                                except:
+                                    pass
+                            
+                            # Send user text
+                            await session.send(input=text, end_of_turn=True)
 
+                    # Handle video frames
                     elif data["type"] == "frame":
                         frame_count += 1
-                        if frame_count % 5 == 0:  # Send every 5th frame
-                            try:
-                                await session.send(
-                                    input={"data": data["frameBase64"], "mime_type": "image/jpeg"},
-                                    end_of_turn=False
-                                )
-                                log(f"📹 Frame sent: {frame_count}")
-                            except Exception as e:
-                                log(f"⚠️ Frame error: {e}")
+                        last_frame_b64 = data["frameBase64"]
+                        if frame_count % 10 == 0:
+                            log(f"📹 Frames: {frame_count}")
+
+                    # Handle explicit describe request
+                    elif data["type"] == "describe":
+                        log("👁️ Describe request")
+                        if last_frame_b64:
+                            await session.send(
+                                input={"data": last_frame_b64, "mime_type": "image/jpeg"},
+                                end_of_turn=False
+                            )
+                        await session.send(input="Please describe what you see.", end_of_turn=True)
 
             except Exception as e:
                 log(f"❌ Loop error: {e}")
@@ -214,7 +190,7 @@ Instructions:
                 session_alive = False
                 if receive_task:
                     receive_task.cancel()
-                log(f"🔌 Done. Audio: {audio_count}, Frames: {frame_count}")
+                log(f"🔌 Done. Frames: {frame_count}")
 
     except Exception as e:
         log(f"🔥 CRASH: {e}")
