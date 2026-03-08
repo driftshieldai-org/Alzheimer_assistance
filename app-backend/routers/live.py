@@ -71,7 +71,7 @@ User: {user_name}
 Memories: {memories_text}
 Be warm, helpful, and describe what you see in images."""
 
-        MODEL_ID = "gemini-2.0-flash-live-001"
+        MODEL_ID = "gemini-live-2.5-flash-native-audio"
         
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
