@@ -57,40 +57,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 
         print(f"✅ Loaded user info for: {user_name}", flush=True)
 
-        # 3️⃣ Define the Tool for fetching past history
-        def check_past_history(query: str) -> str:
-            """Reads the existing images from the user's bucket folder to check for the past history and gets details from Firestore.
-            
-            Args:
-                query: A description of the object or memory to look for in the past history.
+        # 3️⃣ Define the Tool (Fast Firestore-only check)
+        def check_past_history() -> str:
+            """Fetches the user's past memories and photos from their history.
+            Call this tool to get a highly detailed visual list of the user's past memories.
             """
-            print(f"🛠️ [TOOL] check_past_history called by Gemini with query: '{query}'", flush=True)
+            print("🛠️ [TOOL] check_past_history called by Gemini automatically!", flush=True)
             try:
-                # Read existing images from bucket for the user
-                prefix = f"photos/{user_id}/"
-                blobs = list(bucket.list_blobs(prefix=prefix))
+                memories_context = []
+                # Fetch directly from Firestore (Takes ~50 milliseconds)
+                photos_ref = db.collection("users").document(user_id).collection("photos").stream()
                 
-                if not blobs:
-                    return "No existing images found in the bucket for this user."
+                for doc in photos_ref:
+                    data = doc.to_dict()
+                    user_desc = data.get("description", "Unknown memory")
+                    ai_desc = data.get("geminiDescription", "No detailed description available.")
+                    date = data.get("photoDate", "Unknown date")
+                    
+                    # Combine the user's label with the AI's detailed visual fingerprint
+                    full_context = f"Label: {user_desc} (Date: {date})\nVisual Details: {ai_desc}"
+                    memories_context.append(full_context)
                 
-                image_names = [blob.name for blob in blobs]
+                if not memories_context:
+                    return "No past memories found in the user's history."
                 
-                # Get details from Firestore (Assuming history is stored in a 'history' subcollection)
-                history_ref = db.collection("users").document(user_id).collection("photos")
-                docs = history_ref.stream()
-                
-                details = []
-                for doc in docs:
-                    details.append(doc.to_dict())
-                
-                if not details:
-                    return f"Found images {image_names} in bucket, but no corresponding details found in Firestore."
-                
-                return f"Found images in bucket: {image_names}. Firestore history details: {details}"
+                # Separate memories clearly for the model
+                return "User's past memories context:\n\n" + "\n---\n".join(memories_context)
                 
             except Exception as e:
-                print(f"❌ [TOOL ERROR] {e}", flush=True)
-                return f"Error accessing past history: {user_name}"
+                print(f"❌ [TOOL ERROR] {}", flush=True)
+                return f"Error accessing past history: {}"
 
         # 4️⃣ System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
@@ -100,13 +96,15 @@ User name: {user_name}
 Instructions:
 Your task is to act as a live conversational partner.
 1. Greet the user warmly by name at the beginning of the conversation.
-2. After the greeting, wait for the user to speak or ask a question.
-3. When the user asks a question, use the live video and audio stream to understand their query and environment.
-4. You have access to the `check_past_history` tool. Use it to read the existing images from the bucket for the user to check for past history. If any image matches with the current stream, get the detail from Firestore for that image and revert to the user. If no, then go as usual.
-5. Provide helpful, concise, and compassionate answers based on what you see and hear in real-time.
-6. Speak clearly and with a calm, reassuring tone.
+2. Wait for the user to speak or ask a question.
+3. You are receiving a LIVE VIDEO STREAM of the user's environment.
+4. If the user asks about a place, object, or person they are looking at, FIRST use the `check_past_history` tool to fetch their stored memories.
+5. **CRITICAL STEP:** The tool will return highly detailed visual descriptions of their past photos. Compare what you currently see in the LIVE VIDEO STREAM with these text descriptions.
+6. IF YOU RECOGNIZE a match between the live stream and the text descriptions, answer the user warmly using their original Label and Date. (e.g., "Yes! Based on your history, I recognize that as your friend's house from 2023.")
+7. IF YOU CANNOT find a match, explicitly state: "I am not able to find this in your past history." THEN, proceed to answer based solely on what you see using your general knowledge.
+8. Provide concise and compassionate answers. Speak clearly with a calm tone.
 """
-
+        
         # 5️⃣ Gemini Live Config
         MODEL_ID = "gemini-live-2.5-flash-native-audio"  
         

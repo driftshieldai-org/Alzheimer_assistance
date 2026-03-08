@@ -3,16 +3,27 @@ import uuid
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from google.cloud import firestore
 from google.cloud import storage
+from google import genai
+from google.genai import types
 from utils.auth import get_current_user_id
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
 # Clients
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
+LOCATION = os.environ.get("GCP_REGION", "us-central1")
 BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
+
 db = firestore.Client(project=PROJECT_ID)
 storage_client = storage.Client(project=PROJECT_ID)
 bucket = storage_client.bucket(BUCKET_NAME)
+
+# Initialize Gemini Client for standard generation
+genai_client = genai.Client(
+    vertexai=True,
+    project=PROJECT_ID,
+    location=LOCATION
+)
 
 @router.post("/upload")
 async def upload_photo(
@@ -23,27 +34,54 @@ async def upload_photo(
 ):
     if not photo.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="Only image files allowed")
-    
+        
     file_ext = photo.filename.split('.')[-1]
     filename = f"photos/{user_id}/{uuid.uuid4()}.{file_ext}"
     
-    # Upload to GCS
+    # Read file content once
+    await photo.seek(0)
+    content = await photo.read()
+        
+    # 1️⃣ Upload to GCS
     try:
         blob = bucket.blob(filename)
-        # Reset file pointer to beginning
-        await photo.seek(0)
-        content = await photo.read()
+										 
+						   
+									
         blob.upload_from_string(content, content_type=photo.content_type)
     except Exception as e:
         print(f"GCS Upload Error: {e}")
         raise HTTPException(status_code=500, detail="Failed to upload to storage")
-    
-    # Save to Firestore
+        
+    # 2️⃣ NEW: Generate detailed visual description with Gemini
+    try:
+        prompt = f"""The user provided this short description for the photo: '{description}'. 
+        Please provide a highly detailed visual description of this exact image. 
+        Describe the layout, colors, specific objects, background, and unique identifying features. 
+        This text will be used later by another AI to recognize this exact place, object, or person in a live video stream."""
+        
+        # Use aio (async) to prevent blocking the FastAPI server
+        ai_response = await genai_client.aio.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=content, mime_type=photo.content_type)
+            ]
+        )
+        gemini_description = ai_response.text
+        print(f"✅ Generated detailed Gemini description for {filename}")
+    except Exception as e:
+        print(f"⚠️ Gemini Vision Error during upload: {}")
+        # Fallback to the user's basic description if the AI fails
+        gemini_description = description 
+        
+    # 3️⃣ Save to Firestore (Including the new geminiDescription)
     try:
         new_doc_ref = db.collection('users').document(user_id).collection('photos').document()
         new_doc_ref.set({
             "userId": user_id,
-            "description": description,
+            "description": description,           # User's short description
+            "geminiDescription": gemini_description, # AI's highly detailed visual description
             "photoDate": photoDate,
             "imageUrl": filename,
             "filename": filename,
