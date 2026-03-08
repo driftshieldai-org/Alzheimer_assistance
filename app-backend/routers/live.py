@@ -165,7 +165,7 @@ ask them if they are looking for something else and respond accrodingly.
                     async for msg in session.receive():
 
                         if not session_alive:
-                             log("🟢 session not alive")
+                            log("🟢 session not alive")
                             break
 
                         server = msg.server_content
@@ -178,7 +178,7 @@ ask them if they are looking for something else and respond accrodingly.
                             await websocket.send_json(
                                 {"type": "interrupted"}
                             )
-                             log("🟢 server intrupted")
+                            log("🟢 server intrupted")
                             continue
 
                         # model response
@@ -261,7 +261,7 @@ ask them if they are looking for something else and respond accrodingly.
                     # -------- AUDIO --------
 
                     if data["type"] == "audio":
-                         log("🟢 audio received")
+                        log("🟢 audio received")
                         audio_bytes = base64.b64decode(
                             data["audioBase64"]
                         )
@@ -278,7 +278,7 @@ ask them if they are looking for something else and respond accrodingly.
                     # -------- VIDEO FRAME --------
 
                     elif data["type"] == "frame":
-                         log("🟢 frame received")
+                        log("🟢 frame received")
                         frame_bytes = base64.b64decode(
                             data["frameBase64"]
                         )
