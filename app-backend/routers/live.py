@@ -129,25 +129,21 @@ Instructions:
             async def receive_from_gemini():
                 nonlocal session_alive
                 try:
-                    # Send memories as initial context before the conversation starts
+                    # Combine memories and the initial greeting into a single, initial turn.
+                    # This is more robust than sending multiple separate context messages.
+                    initial_prompt_parts = []
                     if memories_context_parts:
-                        print(f"✅ Sending {len(memories_context_parts) // 2} reference photos as context.", flush=True)
-                        await session.send_client_content(
-                            turns=[types.Content(role="user", parts=memories_context_parts)],
-                            turn_complete=False # CRITICAL: Keep turn open for live input
-                        )
+                        initial_prompt_parts.extend(memories_context_parts)
+                    
+                    initial_prompt_parts.append(
+                        types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")
+                    )
 
-                    # Now, send the initial greeting prompt to kick off the conversation
+                    print("✅ Sending initial context and prompt in a single turn.", flush=True)
                     await session.send_client_content(
-                        turns=[
-                            types.Content(
-                                role="user",
-                                parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")]
-                            )
-                        ],
+                        turns=[types.Content(role="user", parts=initial_prompt_parts)],
                         turn_complete=True
                     )
-                    print("✅ Initial greeting prompt sent.", flush=True)
 
                     # Single loop to handle all incoming messages from Gemini
                     async for response in session.receive():
