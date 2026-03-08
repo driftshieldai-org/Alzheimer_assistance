@@ -203,11 +203,21 @@ Instructions:
                             #        "data": base64.b64encode(audio_bytes).decode("utf-8")
                             #    },
                             #    end_of_turn=False  # keep streaming multiple chunks
-                            #)*/
-                            await session.send_realtime_input(
-                                audio=types.Blob(
-                                  data=audio_bytes,
-                                  mime_type="audio/pcm;rate=16000" # 🛠️ FIX: Use raw PCM with correct sample rate
+                            #)
+                            #await session.send_realtime_input(
+                            #    audio=types.Blob(
+                            #      data=audio_bytes,
+                            #      mime_type="audio/pcm;rate=16000" # 🛠️ FIX: Use raw PCM with correct sample rate
+                            #    )
+                            #  )
+                            await session.send(
+                                input=types.LiveClientRealtimeInput(
+                                  media_chunks=[
+                                    types.Blob(
+                                      data=audio_bytes,
+                                      mime_type="audio/pcm;rate=16000" # Explicitly tell Gemini this is raw PCM, not WAV!
+                                    )
+                                  ]
                                 )
                               )
                         except Exception as e:
