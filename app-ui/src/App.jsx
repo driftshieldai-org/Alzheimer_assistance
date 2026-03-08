@@ -192,7 +192,7 @@ export default function MemoryMateApp() {
      echoCancellation: true,
      noiseSuppression: true,
      autoGainControl: true,
-     sampleRate: 24000
+     sampleRate: 16000
     }
    });
    micStreamRef.current = stream;
