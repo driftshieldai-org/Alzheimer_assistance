@@ -13,12 +13,10 @@ from google.cloud import storage
 import jose.jwt as jwt
 from PIL import Image
 
-# Force unbuffered output
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 def log(message):
     print(message, flush=True)
-    sys.stdout.flush()
 
 router = APIRouter()
 
@@ -75,7 +73,7 @@ async def websocket_endpoint(websocket: WebSocket):
         memories_text = "\n".join(memories_context) if memories_context else "No memories stored yet."
 
         # System Instruction
-        system_instruction = f"""You are MemoryMate, a caring AI assistant.
+        system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory challenges.
 
 User name: {user_name}
 
@@ -83,15 +81,17 @@ User's stored memories:
 {memories_text}
 
 Instructions:
-1. Greet the user warmly by name.
-2. Listen and respond naturally to their voice.
-3. Describe what you see when they show the camera.
-4. Speak clearly and kindly.
-5. Always respond when the user finishes speaking.
+1. Greet the user warmly by name when they first connect.
+2. Listen carefully to what they say via audio.
+3. Watch the video stream and describe what you see when relevant.
+4. If something in the video matches a stored memory, kindly remind them.
+5. Speak clearly, slowly, and with compassion.
+6. Keep responses concise but helpful.
+7. Always respond when the user speaks to you.
 """
 
-        # Gemini Live Config
-        MODEL_ID = "gemini-live-2.5-flash-native-audio"
+        # Gemini Live Config with proper audio settings
+        MODEL_ID = "gemini-2.0-flash-live-001"
         
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -104,13 +104,23 @@ Instructions:
             ),
             system_instruction=types.Content(
                 parts=[types.Part(text=system_instruction)]
+            ),
+            # Enable automatic voice activity detection
+            realtime_input_config=types.RealtimeInputConfig(
+                automatic_activity_detection=types.AutomaticActivityDetection(
+                    disabled=False,
+                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
+                    prefix_padding_ms=300,
+                    silence_duration_ms=1000
+                )
             )
         )
 
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             log("🟢 Connected to Gemini Live")
 
-            # Receive loop
+            # Receive loop - handles all responses from Gemini
             async def receive_loop():
                 nonlocal session_alive
                 try:
@@ -121,13 +131,21 @@ Instructions:
                         if response.setup_complete:
                             log("✅ Setup complete")
                             continue
+                        
+                        # Handle tool calls if any
+                        if response.tool_call:
+                            log(f"🔧 Tool call: {response.tool_call}")
+                            continue
                             
                         if response.server_content:
                             server_content = response.server_content
                             
                             if server_content.interrupted:
-                                log("🔇 Interrupted")
-                                await websocket.send_json({"type": "interrupted"})
+                                log("🔇 Interrupted by user")
+                                try:
+                                    await websocket.send_json({"type": "interrupted"})
+                                except:
+                                    pass
                                 continue
                             
                             if server_content.model_turn:
@@ -136,52 +154,64 @@ Instructions:
                                         audio_bytes = part.inline_data.data
                                         b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
                                         log(f"🔊 Audio response: {len(audio_bytes)} bytes")
-                                        await websocket.send_json({
-                                            "type": "audioResponse",
-                                            "audioBase64": b64_audio
-                                        })
+                                        try:
+                                            await websocket.send_json({
+                                                "type": "audioResponse",
+                                                "audioBase64": b64_audio
+                                            })
+                                        except Exception as e:
+                                            log(f"❌ Failed to send audio: {e}")
+                                            session_alive = False
+                                            break
                                     if part.text:
-                                        log(f"📝 Text: {part.text[:50]}...")
-                                        await websocket.send_json({
-                                            "type": "textResponse",
-                                            "text": part.text
-                                        })
+                                        log(f"📝 Text: {part.text[:100]}...")
+                                        try:
+                                            await websocket.send_json({
+                                                "type": "textResponse",
+                                                "text": part.text
+                                            })
+                                        except:
+                                            pass
                             
                             if server_content.turn_complete:
                                 log("✅ Turn complete")
                                             
                 except asyncio.CancelledError:
-                    pass
+                    log("📭 Receive loop cancelled")
                 except Exception as e:
                     log(f"❌ Receive Error: {e}")
                     traceback.print_exc()
                     session_alive = False
 
             receive_task = asyncio.create_task(receive_loop())
-            await asyncio.sleep(0.2)
+            
+            # Wait for setup
+            await asyncio.sleep(0.5)
 
-            # Send greeting
-            await session.send(
-                input=f"Hello! I am {user_name}. Please greet me.",
-                end_of_turn=True
+            # Send initial greeting to trigger first response
+            await session.send_client_content(
+                turns=[
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly and tell me you're ready to help.")]
+                    )
+                ],
+                turn_complete=True
             )
             log("✅ Initial greeting sent")
-            
-            # Wait for greeting response
-            await asyncio.sleep(3)
-            log("🎤 Ready for realtime input")
 
-            # Track audio state
+            # Process incoming audio/video from client
             audio_chunk_count = 0
             frame_count = 0
-            has_audio_since_last_turn = False
+            
+            log("🎤 Ready for realtime input")
             
             try:
                 while session_alive:
                     try:
                         data = await asyncio.wait_for(
                             websocket.receive_json(),
-                            timeout=0.5
+                            timeout=0.1
                         )
                     except asyncio.TimeoutError:
                         continue
@@ -191,64 +221,47 @@ Instructions:
 
                     if data["type"] == "audio":
                         try:
+                            audio_bytes = base64.b64decode(data["audioBase64"])
                             audio_chunk_count += 1
-                            has_audio_since_last_turn = True
                             
                             if audio_chunk_count % 100 == 0:
                                 log(f"🎤 Audio: {audio_chunk_count} chunks")
                             
-                            # Send audio chunk
-                            await session.send(
-                                input={
-                                    "data": data["audioBase64"],
-                                    "mime_type": "audio/pcm;rate=16000"
-                                },
-                                end_of_turn=False
+                            # Send raw audio bytes directly
+                            await session.send_realtime_input(
+                                audio=types.Blob(
+                                    data=audio_bytes,
+                                    mime_type="audio/pcm;rate=16000"
+                                )
                             )
                             
                         except Exception as e:
-                            log(f"⚠️ Audio error: {e}")
-                            if "closed" in str(e).lower() or "1011" in str(e):
+                            error_str = str(e).lower()
+                            if audio_chunk_count % 100 == 0:
+                                log(f"⚠️ Audio error: {e}")
+                            if "closed" in error_str or "1011" in error_str:
                                 session_alive = False
                                 break
 
                     elif data["type"] == "frame":
                         try:
+                            frame_bytes = base64.b64decode(data["frameBase64"])
                             frame_count += 1
                             
                             if frame_count % 10 == 0:
                                 log(f"📹 Frames: {frame_count}")
                             
-                            await session.send(
-                                input={
-                                    "data": data["frameBase64"],
-                                    "mime_type": "image/jpeg"
-                                },
-                                end_of_turn=False
+                            # Send video frame
+                            await session.send_realtime_input(
+                                video=types.Blob(
+                                    data=frame_bytes,
+                                    mime_type="image/jpeg"
+                                )
                             )
                             
                         except Exception as e:
-                            log(f"⚠️ Frame error: {e}")
-                            if "closed" in str(e).lower() or "1011" in str(e):
-                                session_alive = False
-                                break
-                    
-                    elif data["type"] == "endTurn":
-                        if has_audio_since_last_turn:
-                            log("🎙️ End of turn - requesting response")
-                            try:
-                                # Send a text prompt to trigger response
-                                #await session.send(
-                                #    input="Please respond to what I just said.",
-                                #    end_of_turn=True
-                                #)
-                                await session.send(end_of_turn=True)
-                                has_audio_since_last_turn = False
-                            except Exception as e:
-                                log(f"⚠️ End turn error: {e}")
-                                traceback.print_exc()
-                        else:
-                            log("🎙️ End of turn - no audio to process, skipping")
+                            if frame_count % 10 == 0:
+                                log(f"⚠️ Frame error: {e}")
 
             except Exception as e:
                 log(f"❌ Main loop error: {e}")
@@ -256,6 +269,10 @@ Instructions:
             finally:
                 session_alive = False
                 receive_task.cancel()
+                try:
+                    await receive_task
+                except:
+                    pass
                 log(f"🔌 Done. Audio: {audio_chunk_count}, Frames: {frame_count}")
 
     except Exception as e:
