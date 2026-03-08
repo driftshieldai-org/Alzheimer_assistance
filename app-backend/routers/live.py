@@ -96,9 +96,10 @@ Instructions:
                 date = data.get("photoDate", "Unknown date")
                 memory_text = f"Memory: {description} on {date}"
 
-                # Send memory text
+                # Send memory text safely
                 try:
                     await session.send(input=memory_text)
+                    print(f"✅ Sent memory text: {memory_text}")
                 except Exception as e:
                     print(f"⚠️ Failed to send memory text: {e}")
 
@@ -120,6 +121,7 @@ Instructions:
                     await session.send(
                         input={"mime_type": "image/jpeg", "data": image_b64}
                     )
+                    print(f"✅ Sent memory image: {data['filename']}")
                 except Exception as e:
                     print(f"⚠️ Failed to load/convert memory image '{data.get('filename')}': {e}")
 
@@ -128,7 +130,7 @@ Instructions:
                 input=f"Hello, I am {user_name}. Please greet me and confirm you received my memories.",
                 end_of_turn=True
             )
-            print("✅ Memories sent. Ready for conversation.")
+            print("✅ Initial greeting sent. Ready for live conversation.")
 
             # 7️⃣ Receive Responses From Gemini
             async def receive_loop():
@@ -164,29 +166,35 @@ Instructions:
 
             receive_task = asyncio.create_task(receive_loop())
 
-            # 8️⃣ Receive Live Audio (no video frames)
+            # 8️⃣ Receive Live Audio (ignore video frames)
             debug_audio_counter = 0
             try:
                 while True:
                     data = await websocket.receive_json()
 
-                    # Skip video frames: Gemini Live does not support live video streaming
+                    # Ignore video frames
                     if data["type"] == "frame":
                         continue
 
-                    # Audio chunk
+                    # Process audio chunks
                     if data["type"] == "audio":
-                        debug_audio_counter += 1
-                        if debug_audio_counter % 50 == 0:
-                            print(f"🎤 Audio Active: {debug_audio_counter} chunks")
+                        try:
+                            debug_audio_counter += 1
+                            audio_bytes = base64.b64decode(data["audioBase64"])
 
-                        audio_bytes = base64.b64decode(data["audioBase64"])
-                        await session.send(
-                            input={
-                                "mime_type": "audio/wav",
-                                "data": base64.b64encode(audio_bytes).decode("utf-8")
-                            }
-                        )
+                            if debug_audio_counter % 50 == 0:
+                                print(f"🎤 Audio Active: {debug_audio_counter} chunks, size={len(audio_bytes)} bytes")
+
+                            # Send chunk to Gemini Live
+                            await session.send(
+                                input={
+                                    "mime_type": "audio/wav",
+                                    "data": base64.b64encode(audio_bytes).decode("utf-8")
+                                },
+                                end_of_turn=False  # keep streaming multiple chunks
+                            )
+                        except Exception as e:
+                            print(f"⚠️ Failed to send audio chunk: {e}")
 
             except WebSocketDisconnect:
                 print("🔌 Client disconnected")
@@ -200,4 +208,3 @@ Instructions:
             await websocket.close(code=1011)
         except:
             pass
-
