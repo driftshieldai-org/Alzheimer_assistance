@@ -37,7 +37,7 @@ async def get_gcs_file_bytes(filename: str) -> bytes:
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("🔌 Client connected to Live Stream")
+    print("🔌 Client connected to Live Stream", flush=True)
 
     # Session state tracking
     session_alive = True
@@ -48,8 +48,9 @@ async def websocket_endpoint(websocket: WebSocket):
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
+            print(f"✅ Token validated for user: {user_id}", flush=True)
         except Exception as e:
-            print(f"❌ Token Error: {e}")
+            print(f"❌ Token Error: {e}", flush=True)
             await websocket.close(code=1008)
             return
 
@@ -58,6 +59,7 @@ async def websocket_endpoint(websocket: WebSocket):
         user_doc = db.collection("users").document(user_id).get()
         if user_doc.exists:
             user_name = user_doc.to_dict().get("name", user_id)
+        print(f"✅ Loaded user info for: {user_name}", flush=True)
 
         # 3️⃣ Load memories with images as context parts
         memories_context_parts = []
@@ -79,7 +81,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")
                     ))
                 except Exception as e:
-                    print(f"⚠️ Could not load image {filename} from GCS: {e}")
+                    print(f"⚠️ Could not load image {filename} from GCS: {e}", flush=True)
+        print(f"✅ Loaded {len(memories_context_parts) // 2} memories.", flush=True)
 
         # 4️⃣ System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
@@ -98,7 +101,8 @@ Instructions:
 """
 
         # 5️⃣ Gemini Live Config
-        MODEL_ID = "gemini-live-2.5-flash-native-audio"
+        # Using a more common and available model. The previous model might not be available in your project/region.
+        MODEL_ID = "gemini-1.5-flash-latest"
         
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -113,10 +117,12 @@ Instructions:
                 parts=[types.Part(text=system_instruction)]
             )
         )
+        print(f"✅ Configured for model: {MODEL_ID}", flush=True)
 
         # 6️⃣ Connect to Gemini Live
+        print("⏳ Connecting to Gemini Live...", flush=True)
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
-            print("🟢 Connected to Gemini Live")
+            print("🟢 Connected to Gemini Live", flush=True)
             session_alive = True
 
             # Task 1: Receive all messages from Gemini and forward to client
@@ -125,7 +131,7 @@ Instructions:
                 try:
                     # Send memories as initial context before the conversation starts
                     if memories_context_parts:
-                        print(f"✅ Sending {len(memories_context_parts) // 2} reference photos as context.")
+                        print(f"✅ Sending {len(memories_context_parts) // 2} reference photos as context.", flush=True)
                         await session.send_client_content(
                             turns=[types.Content(role="user", parts=memories_context_parts)],
                             turn_complete=False # CRITICAL: Keep turn open for live input
@@ -141,7 +147,7 @@ Instructions:
                         ],
                         turn_complete=True
                     )
-                    print("✅ Initial greeting prompt sent.")
+                    print("✅ Initial greeting prompt sent.", flush=True)
 
                     # Single loop to handle all incoming messages from Gemini
                     async for response in session.receive():
@@ -182,12 +188,12 @@ Instructions:
                                         break
 
                         if response.setup_complete:
-                            print("✅ Gemini setup complete.")
+                            print("✅ Gemini setup complete.", flush=True)
                                     
                 except asyncio.CancelledError:
-                    print("➡️ Gemini receive loop cancelled.")
+                    print("➡️ Gemini receive loop cancelled.", flush=True)
                 except Exception as e:
-                    print(f"❌ Gemini Receive Loop Error: {e}")
+                    print(f"❌ Gemini Receive Loop Error: {e}", flush=True)
                     traceback.print_exc()
                     session_alive = False
 
@@ -201,7 +207,7 @@ Instructions:
                         try:
                             data = await websocket.receive_json()
                         except WebSocketDisconnect:
-                            print("🔌 Client disconnected, stopping forwarder.")
+                            print("🔌 Client disconnected, stopping forwarder.", flush=True)
                             session_alive = False
                             break
 
@@ -213,7 +219,7 @@ Instructions:
                                 audio_bytes = base64.b64decode(data["audioBase64"])
                                 audio_chunk_count += 1
                                 if audio_chunk_count % 50 == 0:
-                                    print(f"🎤 Audio chunks sent: {audio_chunk_count}")
+                                    print(f"🎤 Audio chunks sent: {audio_chunk_count}", flush=True)
                                 await session.send_realtime_input(
                                     media=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
                                 )
@@ -221,26 +227,26 @@ Instructions:
                                 frame_bytes = base64.b64decode(data["frameBase64"])
                                 frame_count += 1
                                 if frame_count % 10 == 0:
-                                    print(f"📹 Video frames sent: {frame_count}")
+                                    print(f"📹 Video frames sent: {frame_count}", flush=True)
                                 await session.send_realtime_input(
                                     media=types.Blob(data=frame_bytes, mime_type="image/jpeg")
                                 )
                             elif data_type == "speech_start":
-                                print("🎤 User started speaking, interrupting model.")
+                                print("🎤 User started speaking, interrupting model.", flush=True)
                                 await session.send_client_content(turn_complete=False)
                             elif data_type == "end_of_turn":
-                                print("🤫 User stopped speaking, signaling turn complete.")
+                                print("🤫 User stopped speaking, signaling turn complete.", flush=True)
                                 await session.send_client_content(turn_complete=True)
                         except Exception as e:
-                            print(f"⚠️ Failed to send to Gemini: {e}")
+                            print(f"⚠️ Failed to send to Gemini: {e}", flush=True)
                             if "closed" in str(e).lower() or "1011" in str(e):
-                                print("❌ Fatal session error, stopping forwarder.")
+                                print("❌ Fatal session error, stopping forwarder.", flush=True)
                                 session_alive = False
                                 break
                 except asyncio.CancelledError:
-                    print("➡️ Client forwarder loop cancelled.")
+                    print("➡️ Client forwarder loop cancelled.", flush=True)
                 except Exception as e:
-                    print(f"❌ Client Forwarder Loop Error: {e}")
+                    print(f"❌ Client Forwarder Loop Error: {e}", flush=True)
                     traceback.print_exc()
                     session_alive = False
 
@@ -261,10 +267,10 @@ Instructions:
             # Wait for the cancellation to propagate
             await asyncio.gather(*pending, return_exceptions=True)
             
-            print("🔌 Session cleanup complete")        
+            print("🔌 Session cleanup complete", flush=True)        
 
     except Exception as e:
-        print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
+        print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}", flush=True)
         traceback.print_exc()
     finally:
         try:
