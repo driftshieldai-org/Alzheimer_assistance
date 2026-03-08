@@ -12,7 +12,7 @@ class AudioProcessor extends AudioWorkletProcessor {
     super();
     this.buffer = [];
     this.BUFFER_SIZE = 1600; // 100ms at 16kHz
-    this.gain = 3.0; // Amplify audio
+    this.gain = 10.0; // Amplify audio
   }
 
   process(inputs, outputs, parameters) {
@@ -172,9 +172,9 @@ export default function MemoryMateApp() {
         audio: {
           channelCount: 1,
           sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
         }
       });
       micStreamRef.current = stream;
