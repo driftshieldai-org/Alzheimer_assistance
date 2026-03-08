@@ -85,8 +85,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 return "User's past memories context:\n\n" + "\n---\n".join(memories_context)
                 
             except Exception as e:
-                print(f"❌ [TOOL ERROR] {}", flush=True)
-                return f"Error accessing past history: {}"
+                print(f"❌ [TOOL ERROR] {e}", flush=True)
+                return f"Error accessing past history"
 
         # 4️⃣ System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
