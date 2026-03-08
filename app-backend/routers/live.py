@@ -53,22 +53,38 @@ async def websocket_endpoint(websocket: WebSocket):
         if user_doc.exists:
             user_name = user_doc.to_dict().get("name", user_id)
 
-        # 3️⃣ System Instruction
-        system_instruction = f"""
-You are MemoryMate.
+        # 3️⃣ Load memories as context text
+        memories_context = []
+        photos_ref = db.collection("users").document(user_id).collection("photos").stream()
+        for doc in photos_ref:
+            data = doc.to_dict()
+            if "description" in data:
+                description = data.get("description", "Unknown memory")
+                date = data.get("photoDate", "Unknown date")
+                memories_context.append(f"- {description} (Date: {date})")
+        
+        memories_text = "\n".join(memories_context) if memories_context else "No memories stored yet."
+
+        # 4️⃣ System Instruction
+        system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
 User name: {user_name}
 
+User's stored memories:
+{memories_text}
+
 Instructions:
-1. Greet the user warmly.
-2. Listen to their voice.
-3. Watch their video stream.
-4. Match their video to stored memories when possible.
-5. Speak clearly and kindly.
+1. Greet the user warmly by name.
+2. Listen to their voice and respond naturally.
+3. When they show you something via camera, describe what you see.
+4. If what they show matches a stored memory, remind them about it kindly.
+5. Speak clearly, slowly, and with compassion.
+6. Keep responses concise and helpful.
 """
 
-        # 4️⃣ Gemini Live Config
-        MODEL_ID = "gemini-live-2.5-flash-native-audio"
+        # 5️⃣ Gemini Live Config - Audio only model
+        MODEL_ID = "gemini-2.0-flash-live-001"
+        
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
@@ -78,153 +94,120 @@ Instructions:
                     )
                 )
             ),
-            system_instruction=system_instruction
-            
+            system_instruction=types.Content(
+                parts=[types.Part(text=system_instruction)]
+            )
         )
 
-        # 5️⃣ Connect to Gemini Live
+        # 6️⃣ Connect to Gemini Live
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print("🟢 Connected to Gemini Live")
 
-            # 6️⃣ Send Stored Memories (Text + Images)
-            photos_ref = db.collection("users").document(user_id).collection("photos").stream()
-            for doc in photos_ref:
-                data = doc.to_dict()
-                if "filename" not in data:
-                    continue
-
-                description = data.get("description", "Unknown memory")
-                date = data.get("photoDate", "Unknown date")
-                memory_text = f"Memory: {description} on {date}"
-
-                # Send memory text safely
-                try:
-                    await session.send(input=memory_text)
-                    print(f"✅ Sent memory text: {memory_text}")
-                except Exception as e:
-                    print(f"⚠️ Failed to send memory text: {e}")
-
-                # Send memory image safely
-                try:
-                    blob = bucket.blob(data["filename"])
-                    image_bytes = blob.download_as_bytes()
-
-                    # Validate and re-encode image as JPEG RGB
-                    img = Image.open(BytesIO(image_bytes)).convert("RGB")
-                    # Optional: resize large images
-                    img.thumbnail((512, 512))
-                    buf = BytesIO()
-                    img.save(buf, format="JPEG")
-                    image_bytes_jpeg = buf.getvalue()
-
-                    image_b64 = base64.b64encode(image_bytes_jpeg).decode("utf-8")
-
-                    await session.send(
-                        input={"mime_type": "image/jpeg", "data": image_b64}
+            # Send initial greeting prompt
+            await session.send_client_content(
+                turns=[
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")]
                     )
-                    print(f"✅ Sent memory image: {data['filename']}")
-                except Exception as e:
-                    print(f"⚠️ Failed to load/convert memory image '{data.get('filename')}': {e}")
-
-            # Send initial greeting
-            await session.send(
-                input=f"Hello, I am {user_name}. Please greet me and confirm you received my memories.",
-                end_of_turn=True
+                ],
+                turn_complete=True
             )
-            print("✅ Initial greeting sent. Ready for live conversation.")
+            print("✅ Initial greeting sent")
+
+            # Flag to track if we're ready for realtime input
+            ready_for_realtime = asyncio.Event()
 
             # 7️⃣ Receive Responses From Gemini
             async def receive_loop():
                 try:
                     async for response in session.receive():
-                        server_content = response.server_content
-                        if server_content is None:
-                            continue
-                        if server_content.interrupted:
-                            await websocket.send_json({"type": "interrupted"})
-                        turn = server_content.model_turn
-                        if not turn:
-                            continue
-                        for part in turn.parts:
-                            # Audio response
-                            if part.inline_data:
-                                audio_bytes = part.inline_data.data
-                                b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-                                await websocket.send_json({
-                                    "type": "audioResponse",
-                                    "audioBase64": b64_audio
-                                })
-                            # Text description
-                            if part.text:
-                                await websocket.send_json({
-                                    "type": "audioResponse",
-                                    "description": part.text
-                                })
+                        # Handle server content
+                        if response.server_content:
+                            server_content = response.server_content
+                            
+                            # Check for interruption
+                            if server_content.interrupted:
+                                await websocket.send_json({"type": "interrupted"})
+                                continue
+                            
+                            # Process model turn
+                            if server_content.model_turn:
+                                for part in server_content.model_turn.parts:
+                                    # Audio response
+                                    if part.inline_data:
+                                        audio_bytes = part.inline_data.data
+                                        b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+                                        await websocket.send_json({
+                                            "type": "audioResponse",
+                                            "audioBase64": b64_audio
+                                        })
+                                    # Text response (if any)
+                                    if part.text:
+                                        await websocket.send_json({
+                                            "type": "textResponse",
+                                            "text": part.text
+                                        })
+                            
+                            # Turn complete - ready for more input
+                            if server_content.turn_complete:
+                                ready_for_realtime.set()
+                                print("✅ Turn complete, ready for realtime input")
+                        
+                        # Handle setup complete
+                        if response.setup_complete:
+                            print("✅ Setup complete")
+                            
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
                     print(f"❌ Receive Loop Error: {e}")
+                    traceback.print_exc()
 
             receive_task = asyncio.create_task(receive_loop())
 
-            # 8️⃣ Receive Live Audio (ignore video frames)
-            debug_audio_counter = 0
+            # Wait for initial response to complete
+            try:
+                await asyncio.wait_for(ready_for_realtime.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                print("⚠️ Timeout waiting for initial response")
+
+            # 8️⃣ Process incoming audio/video from client
+            print("🎤 Ready to receive realtime audio/video")
+            
             try:
                 while True:
                     data = await websocket.receive_json()
 
-                    if data["type"] == "frame":
-                        try:
-                            frame_bytes = base64.b64decode(data["frameBase64"])
-                            # Stream video frames using Realtime Input
-                            #await session.send_realtime_input(
-                            #video=types.Blob(
-                            #  data=frame_bytes,
-                            #  mime_type="image/jpeg"
-                            #)
-                            #)
-                            await session.send(
-                                input={"mime_type": "image/jpeg", "data": data["frameBase64"]}
-                            )
-                        except Exception as e:
-                            print(f"⚠️ Failed to send video frame: {e}")
-                            continue
-
                     # Process audio chunks
                     if data["type"] == "audio":
                         try:
-                            debug_audio_counter += 1
                             audio_bytes = base64.b64decode(data["audioBase64"])
-
-                            if debug_audio_counter % 50 == 0:
-                                print(f"🎤 Audio Active: {debug_audio_counter} chunks, size={len(audio_bytes)} bytes")
-
-                            # Send chunk to Gemini Live
-                            #await session.send(
-                            #    input={
-                            #        "mime_type": "audio/wav",
-                            #        "data": base64.b64encode(audio_bytes).decode("utf-8")
-                            #    },
-                            #    end_of_turn=False  # keep streaming multiple chunks
-                            #)
-                            #await session.send_realtime_input(
-                            #    audio=types.Blob(
-                            #      data=audio_bytes,
-                            #      mime_type="audio/pcm;rate=16000" # 🛠️ FIX: Use raw PCM with correct sample rate
-                            #    )
-                            #  )
-                            await session.send(
-                                input=types.LiveClientRealtimeInput(
-                                  media_chunks=[
-                                    types.Blob(
-                                      data=audio_bytes,
-                                      mime_type="audio/pcm;rate=16000" # Explicitly tell Gemini this is raw PCM, not WAV!
-                                    )
-                                  ]
+                            
+                            # Send audio using realtime input
+                            await session.send_realtime_input(
+                                media=types.Blob(
+                                    data=audio_bytes,
+                                    mime_type="audio/pcm;rate=16000"
                                 )
-                              )
+                            )
                         except Exception as e:
                             print(f"⚠️ Failed to send audio chunk: {e}")
+
+                    # Process video frames
+                    elif data["type"] == "frame":
+                        try:
+                            frame_bytes = base64.b64decode(data["frameBase64"])
+                            
+                            # Send video frame using realtime input
+                            await session.send_realtime_input(
+                                media=types.Blob(
+                                    data=frame_bytes,
+                                    mime_type="image/jpeg"
+                                )
+                            )
+                        except Exception as e:
+                            print(f"⚠️ Failed to send video frame: {e}")
 
             except WebSocketDisconnect:
                 print("🔌 Client disconnected")
@@ -233,7 +216,7 @@ Instructions:
 
     except Exception as e:
         print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
-        print(traceback.format_exc())
+        traceback.print_exc()
         try:
             await websocket.close(code=1011)
         except:
