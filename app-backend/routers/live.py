@@ -78,7 +78,9 @@ Instructions:
                     )
                 )
             ),
+            automatic_activity_detection=True,
             system_instruction=system_instruction
+            
         )
 
         # 5️⃣ Connect to Gemini Live
@@ -172,9 +174,19 @@ Instructions:
                 while True:
                     data = await websocket.receive_json()
 
-                    # Ignore video frames
                     if data["type"] == "frame":
-                        continue
+                        try:
+                            frame_bytes = base64.b64decode(data["frameBase64"])
+                            # Stream video frames using Realtime Input
+                            await session.send_realtime_input(
+                            video=types.Blob(
+                              data=frame_bytes,
+                              mime_type="image/jpeg"
+                            )
+                            )
+                        except Exception as e:
+                            print(f"⚠️ Failed to send video frame: {}")
+                            continue
 
                     # Process audio chunks
                     if data["type"] == "audio":
@@ -186,13 +198,19 @@ Instructions:
                                 print(f"🎤 Audio Active: {debug_audio_counter} chunks, size={len(audio_bytes)} bytes")
 
                             # Send chunk to Gemini Live
-                            await session.send(
-                                input={
-                                    "mime_type": "audio/wav",
-                                    "data": base64.b64encode(audio_bytes).decode("utf-8")
-                                },
-                                end_of_turn=False  # keep streaming multiple chunks
-                            )
+                            #await session.send(
+                            #    input={
+                            #        "mime_type": "audio/wav",
+                            #        "data": base64.b64encode(audio_bytes).decode("utf-8")
+                            #    },
+                            #    end_of_turn=False  # keep streaming multiple chunks
+                            #)*/
+                            await session.send_realtime_input(
+                                audio=types.Blob(
+                                  data=audio_bytes,
+                                  mime_type="audio/pcm;rate=16000" # 🛠️ FIX: Use raw PCM with correct sample rate
+                                )
+                              )
                         except Exception as e:
                             print(f"⚠️ Failed to send audio chunk: {e}")
 
