@@ -9,17 +9,23 @@ from google.genai import types
 from google.cloud import firestore
 import jose.jwt as jwt
 
+router = APIRouter()
+
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 def log(msg):
     print(msg, flush=True)
+	
 
-
-router = APIRouter()
+# ---------------- ENV ----------------
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 LOCATION = os.environ.get("GCP_REGION", "us-central1")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
+
+MODEL_ID = "gemini-live-2.5-flash-native-audio"
+
+# ---------------- CLIENTS ----------------
 
 db = firestore.Client(project=PROJECT_ID)
 
@@ -29,7 +35,7 @@ client = genai.Client(
     location=LOCATION
 )
 
-MODEL_ID = "gemini-live-2.5-flash-native-audio"
+# ---------------- WEBSOCKET ----------------
 
 
 @router.websocket("/api/live/ws/live/process-stream")
@@ -43,6 +49,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
 
         # ---------------- AUTH ----------------
+
         token = websocket.query_params.get("token")
 
         try:
@@ -54,16 +61,19 @@ async def websocket_endpoint(websocket: WebSocket):
             return
 
         # ---------------- USER ----------------
+
         user_name = user_id
 
         try:
             user_doc = db.collection("users").document(user_id).get()
+
             if user_doc.exists:
                 user_name = user_doc.to_dict().get("name", user_id)
-        except:
+        except Exception:
             pass
 
         # ---------------- MEMORIES ----------------
+
         memories = []
 
         try:
@@ -82,14 +92,15 @@ async def websocket_endpoint(websocket: WebSocket):
                         f"{data['description']} (Date: {data.get('photoDate')})"
                     )
 
-        except:
+        except Exception:
             pass
 
         memories_text = "\n".join(memories) if memories else "No stored memories."
 
         # ---------------- SYSTEM PROMPT ----------------
+
         system_prompt = f"""
-You are MemoryMate, helping a user with memory loss.
+You are MemoryMate, a caring AI helping a person with memory loss.
 
 User: {user_name}
 
@@ -98,9 +109,13 @@ Known memories:
 
 Speak gently and clearly.
 Keep responses short.
+If the user shows something using the camera, describe it.
+If it matches a stored memory, remind them kindly.
+ask them if they are looking for something else and respond accrodingly.
 """
 
         # ---------------- CONFIG ----------------
+
         config = types.LiveConnectConfig(
 
             response_modalities=["AUDIO"],
@@ -119,6 +134,7 @@ Keep responses short.
         )
 
         # ---------------- GEMINI SESSION ----------------
+
         async with client.aio.live.connect(
             model=MODEL_ID,
             config=config
@@ -126,26 +142,30 @@ Keep responses short.
 
             log("🟢 Gemini Live connected")
 
-            # greeting
+            # -------- Greeting --------
+
             await session.send_client_content(
                 turns=[
                     types.Content(
                         role="user",
                         parts=[types.Part(text=f"Hello I am {user_name}")]
                     )
-                ]
+                ],
+                turn_complete=True
             )
 
             # ---------------- RECEIVE LOOP ----------------
+
             async def receive_loop():
 
                 nonlocal session_alive
 
                 try:
-
+                     log("🟢 receive loop")
                     async for msg in session.receive():
 
                         if not session_alive:
+                             log("🟢 session not alive")
                             break
 
                         server = msg.server_content
@@ -153,16 +173,20 @@ Keep responses short.
                         if not server:
                             continue
 
+                        # interruption (barge-in)
                         if server.interrupted:
                             await websocket.send_json(
                                 {"type": "interrupted"}
                             )
+                             log("🟢 server intrupted")
                             continue
 
+                        # model response
                         if server.model_turn:
 
                             for part in server.model_turn.parts:
 
+                                # AUDIO
                                 if part.inline_data:
 
                                     audio = base64.b64encode(
@@ -176,6 +200,7 @@ Keep responses short.
                                         }
                                     )
 
+                                # TEXT (optional debug)
                                 if part.text:
 
                                     await websocket.send_json(
@@ -185,13 +210,17 @@ Keep responses short.
                                         }
                                     )
 
+                except asyncio.CancelledError:
+                    pass
+
                 except Exception as e:
-                    print("Receive loop error:", e)
+                    log(f"❌ Receive loop error:{e}")
                     session_alive = False
 
             receive_task = asyncio.create_task(receive_loop())
 
             # ---------------- STREAM LOOP ----------------
+
             last_audio = 0
             AUDIO_TIMEOUT = 1.2
 
@@ -208,7 +237,7 @@ Keep responses short.
 
                     except asyncio.TimeoutError:
 
-                        # flush audio if user stopped speaking
+                        # Detect speech stop → trigger model response
                         if (
                             last_audio > 0
                             and asyncio.get_event_loop().time() - last_audio
@@ -226,11 +255,13 @@ Keep responses short.
                         continue
 
                     except WebSocketDisconnect:
+                        log("🔌 Client disconnected")
                         break
 
                     # -------- AUDIO --------
-                    if data["type"] == "audio":
 
+                    if data["type"] == "audio":
+                         log("🟢 audio received")
                         audio_bytes = base64.b64decode(
                             data["audioBase64"]
                         )
@@ -244,9 +275,10 @@ Keep responses short.
 
                         last_audio = asyncio.get_event_loop().time()
 
-                    # -------- VIDEO --------
-                    elif data["type"] == "frame":
+                    # -------- VIDEO FRAME --------
 
+                    elif data["type"] == "frame":
+                         log("🟢 frame received")
                         frame_bytes = base64.b64decode(
                             data["frameBase64"]
                         )
@@ -261,6 +293,7 @@ Keep responses short.
             finally:
 
                 session_alive = False
+
                 receive_task.cancel()
 
                 try:
@@ -268,7 +301,10 @@ Keep responses short.
                 except:
                     pass
 
+                log("🧹 Session closed")
+
     except Exception:
+
         traceback.print_exc()
 
     finally:
