@@ -177,7 +177,7 @@ Ask them if they are looking for something else and respond accordingly.
                             session_alive = False
                             break
                         last_audio = 0
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)  # frequent check
 
             audio_monitor_task = asyncio.create_task(audio_monitor())
 
@@ -199,7 +199,7 @@ Ask them if they are looking for something else and respond accordingly.
                         await session.send_realtime_input(
                             audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
                         )
-                        last_audio = asyncio.get_event_loop().time()
+                        last_audio = asyncio.get_event_loop().time()  # update timestamp
 
                     # -------- VIDEO FRAME --------
                     elif data["type"] == "frame":
