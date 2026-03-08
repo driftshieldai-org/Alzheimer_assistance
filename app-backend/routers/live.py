@@ -28,12 +28,6 @@ client = genai.Client(
     location=LOCATION
 )
 
-async def get_gcs_file_bytes(filename: str) -> bytes:
-    """Downloads a file from GCS and returns its content as bytes."""
-    blob = bucket.blob(filename)
-    return await asyncio.to_thread(blob.download_as_bytes)
-
-
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -61,43 +55,18 @@ async def websocket_endpoint(websocket: WebSocket):
             user_name = user_doc.to_dict().get("name", user_id)
         print(f"✅ Loaded user info for: {user_name}", flush=True)
 
-        # 3️⃣ Load memories with images as context parts
-        memories_context_parts = []
-        photos_ref = db.collection("users").document(user_id).collection("photos").stream()
-        for doc in photos_ref:
-            data = doc.to_dict()
-            if "description" in data and "filename" in data:
-                description = data.get("description", "Unknown memory")
-                date = data.get("photoDate", "Unknown date")
-                filename = data.get("filename")
-                
-                # Add text part for the memory
-                memories_context_parts.append(types.Part(text=f"Memory - Description: {description}, Date: {date}"))
-                
-                # Add image part for the memory
-                try:
-                    image_bytes = await get_gcs_file_bytes(filename)
-                    memories_context_parts.append(types.Part(
-                        inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")
-                    ))
-                except Exception as e:
-                    print(f"⚠️ Could not load image {filename} from GCS: {e}", flush=True)
-        print(f"✅ Loaded {len(memories_context_parts) // 2} memories.", flush=True)
-
         # 4️⃣ System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
 User name: {user_name}
 
-I have provided you with the user's stored memories (photos and descriptions) in the previous turn.
-
 Instructions:
-1. Greet the user warmly by name.
-2. Listen to their voice and respond naturally.
-3. When they show you something via camera, describe what you see.
-4. If what they show matches a stored memory, remind them about it kindly.
-5. Speak clearly, slowly, and with compassion.
-6. Keep responses concise and helpful.
+Your task is to act as a live conversational partner.
+1. Greet the user warmly by name at the beginning of the conversation.
+2. After the greeting, wait for the user to speak or ask a question.
+3. When the user asks a question, use the live video and audio stream to understand their query and environment.
+4. Provide helpful, concise, and compassionate answers based on what you see and hear in real-time.
+5. Speak clearly and with a calm, reassuring tone.
 """
 
         # 5️⃣ Gemini Live Config
@@ -125,25 +94,10 @@ Instructions:
             print("🟢 Connected to Gemini Live", flush=True)
             session_alive = True
 
-            # Combine memories and the initial greeting into a single, initial turn.
-            # This is sent once before starting the concurrent send/receive loops.
-            initial_prompt_parts = []
-            if memories_context_parts:
-                initial_prompt_parts.extend(memories_context_parts)
-            initial_prompt_parts.append(
-                types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")
-            )
-            print("✅ Sending initial context and prompt in a single turn.", flush=True)
-            await session.send_client_content(
-                turns=[types.Content(role="user", parts=initial_prompt_parts)],
-                turn_complete=True
-            )
-
             # Task 1: Receive all messages from Gemini and forward to client
             async def receive_from_gemini():
                 nonlocal session_alive
                 try:
-                    # Single loop to handle all incoming messages from Gemini
                     async for response in session.receive():
                         if not session_alive:
                             break
@@ -197,6 +151,19 @@ Instructions:
                 audio_chunk_count = 0
                 frame_count = 0
                 try:
+                    # Send the initial prompt with context ONCE at the beginning of the session.
+                    # This triggers the initial greeting from the model.
+                    initial_prompt_parts = [
+                        types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")
+                    ]
+                    print("✅ Sending initial greeting prompt.", flush=True)
+                    await session.send_client_content(
+                        turns=[types.Content(role="user", parts=initial_prompt_parts)],
+                        turn_complete=True
+                    )
+                    print("✅ Initial prompt sent. Waiting for client data...", flush=True)
+
+                    # Now, enter the main loop to forward client data.
                     while session_alive:
                         try:
                             data = await websocket.receive_json()
