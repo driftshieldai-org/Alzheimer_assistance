@@ -185,7 +185,7 @@ Instructions:
                             )
                             )
                         except Exception as e:
-                            print(f"⚠️ Failed to send video frame: {}")
+                            print(f"⚠️ Failed to send video frame: {e}")
                             continue
 
                     # Process audio chunks
