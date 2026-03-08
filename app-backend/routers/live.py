@@ -41,7 +41,7 @@ async def websocket_endpoint(websocket: WebSocket):
             if user_doc.exists:
                 user_name = user_doc.to_dict().get("name", user_id)
 
-        # 2️⃣ STRICT TYPED TOOL SCHEMA (Forces the SDK to register the tool)
+        # 2️⃣ Tool Definition
         history_tool = types.Tool(
             function_declarations=[
                 types.FunctionDeclaration(
@@ -52,7 +52,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         properties={
                             "what_you_see": types.Schema(
                                 type="STRING",
-                                description="Describe what you currently see in the live video."
+                                description="Describe exactly what you see in the live video."
                             )
                         },
                         required=["what_you_see"]
@@ -61,7 +61,7 @@ async def websocket_endpoint(websocket: WebSocket):
             ]
         )
 
-        # 3️⃣ AGGRESSIVE SYSTEM INSTRUCTION
+        # 3️⃣ Aggressive System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
 User name: {user_name}
@@ -69,14 +69,14 @@ User name: {user_name}
 Instructions:
 1. Greet the user warmly by name.
 2. You are receiving a LIVE VIDEO STREAM. Look at it constantly.
-3. **MANDATORY RULE:** If the user asks you to identify an object, place, or person (e.g. "What is this?", "Do you know this?"), YOU ARE FORBIDDEN from guessing based on general knowledge. You MUST call the `check_past_history` tool FIRST.
+3. **MANDATORY RULE:** If the user asks you to identify an object, place, or person (e.g. "What is this?", "Do you know this?"), you MUST call the `check_past_history` tool FIRST.
 4. When you call the tool, pass a description of what you see in the video.
-5. The tool will return "Visual Fingerprints" from the user's database. Compare the live video to these text fingerprints.
-6. IF MATCH FOUND: Say "Yes, I recognize that!" and share the memory label and date.
-7. IF NO MATCH: Say "I don't see this in your stored memories," and then tell them what it is using general knowledge.
+5. NEVER say "I don't see this in your stored memories" UNLESS you have successfully called the tool and received a response. Do not hallucinate the database check.
+6. The tool will return "Visual Fingerprints". Compare the live video to these text fingerprints.
+7. IF MATCH FOUND: Say "Yes, I recognize that!" and share the memory label and date.
+8. IF NO MATCH: Say "I don't see this in your stored memories," and then tell them what it is using general knowledge.
 """
 
-        # 4️⃣ Gemini Live Config
         MODEL_ID = "gemini-live-2.5-flash-native-audio"  
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -89,7 +89,6 @@ Instructions:
             tools=[history_tool] 
         )
 
-        # 5️⃣ Connect to Gemini Live
         print("⏳ Connecting to Gemini Live...", flush=True)
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print("🟢 Connected to Gemini Live", flush=True)
@@ -103,6 +102,55 @@ Instructions:
                         async for response in session.receive():
                             if not session_alive: break
                             
+                            # 🚨 THE FIX: Catching top-level tool_call from Live API!
+                            if getattr(response, "tool_call", None):
+                                for fc in response.tool_call.function_calls:
+                                    if fc.name == "check_past_history":
+                                        # Use standard dictionary parsing to safely extract args
+                                        args_dict = fc.args if isinstance(fc.args, dict) else dict(fc.args)
+                                        what_you_see = args_dict.get("what_you_see", "")
+                                        
+                                        print(f"\n==========================================")
+                                        print(f"🛠️ [TOOL TRIGGERED] Gemini called history!")
+                                        print(f"👁️  Gemini sees: '{what_you_see}'")
+                                        print(f"==========================================\n", flush=True)
+                                        
+                                        def fetch_db():
+                                            return [doc.to_dict() for doc in db.collection("users").document(user_id).collection("photos").stream()]
+                                        
+                                        try:
+                                            photos_data = await asyncio.to_thread(fetch_db)
+                                            memories_context = []
+                                            for data in photos_data:
+                                                user_desc = data.get("description", "Unknown")
+                                                ai_desc = data.get("geminiDescription", "No details")
+                                                date = data.get("photoDate", "Unknown date")
+                                                memories_context.append(f"Label: {user_desc} (Date: {date})\nVisual Details: {ai_desc}")
+                                            
+                                            if memories_context:
+                                                tool_result = "Compare your 'what_you_see' to these:\n\n" + "\n---\n".join(memories_context)
+                                            else:
+                                                tool_result = "No past memories found."
+                                        except Exception as e:
+                                            print(f"❌ DB Error: {e}")
+                                            tool_result = "Database error."
+
+                                        print("✅ [TOOL] Sending results back to Gemini...", flush=True)
+                                        
+                                        # Properly send the function response back
+                                        await session.send_client_content(
+                                            turns=[types.Content(
+                                                role="user",
+                                                parts=[types.Part.from_function_response(
+                                                    name="check_past_history",
+                                                    response={"result": tool_result}
+                                                )]
+                                            )],
+                                            turn_complete=True
+                                        )
+                                continue # Done processing tool calls for this response
+                            
+                            # 🟢 Standard Text & Audio Handling
                             if response.server_content:
                                 server_content = response.server_content
                                 
@@ -118,58 +166,8 @@ Instructions:
                                     generated_audio_base64 = ""
                                     
                                     for part in server_content.model_turn.parts:
-                                        
-                                        # 🔴 DETECT AND EXECUTE TOOL CALL
-                                        if part.function_call and part.function_call.name == "check_past_history":
-                                            what_you_see = part.function_call.args.get("what_you_see", "")
-                                            
-                                            # YOU WILL SEE THIS LOG
-                                            print(f"\n==========================================")
-                                            print(f"🛠️ [TOOL TRIGGERED] Gemini called history!")
-                                            print(f"👁️  Gemini sees: '{what_you_see}'")
-                                            print(f"==========================================\n", flush=True)
-                                            
-                                            def fetch_db():
-                                                return [doc.to_dict() for doc in db.collection("users").document(user_id).collection("photos").stream()]
-                                            
-                                            try:
-                                                photos_data = await asyncio.to_thread(fetch_db)
-                                                memories_context = []
-                                                for data in photos_data:
-                                                    user_desc = data.get("description", "Unknown")
-                                                    ai_desc = data.get("geminiDescription", "No details")
-                                                    date = data.get("photoDate", "Unknown date")
-                                                    memories_context.append(f"Label: {user_desc} (Date: {date})\nVisual Details: {ai_desc}")
-                                                
-                                                if memories_context:
-                                                    tool_result = "Database matches found. Compare your 'what_you_see' to these:\n\n" + "\n---\n".join(memories_context)
-                                                else:
-                                                    tool_result = "No past memories found."
-                                            except Exception as e:
-                                                print(f"❌ DB Error: {e}")
-                                                tool_result = "Database error."
-
-                                            print("✅ [TOOL] Sending database results back to AI.", flush=True)
-                                            await session.send_client_content(
-                                                turns=[
-                                                    types.Content(
-                                                        role="user",
-                                                        parts=[
-                                                            types.Part.from_function_response(
-                                                                name="check_past_history",
-                                                                response={"result": tool_result}
-                                                            )
-                                                        ]
-                                                    )
-                                                ],
-                                                turn_complete=True
-                                            )
-                                            continue 
-
-                                        # 🟢 Handle standard Audio and Text Responses
                                         if part.text:
-                                            # DEBUG LOG: See what the AI is saying instead of calling the tool
-                                            print(f"💬 [AI SPEAKING] {part.text}", flush=True)
+                                            print(f"💬 [AI SPEAKING] {part.text.strip()}", flush=True)
                                             generated_text += part.text
                                             
                                         if part.inline_data:
