@@ -41,43 +41,43 @@ async def websocket_endpoint(websocket: WebSocket):
             if user_doc.exists:
                 user_name = user_doc.to_dict().get("name", user_id)
 
-        # 2️⃣ Define the Tool Schema (Manual Execution Required for Live API)
+        # 2️⃣ STRICT TYPED TOOL SCHEMA (Forces the SDK to register the tool)
         history_tool = types.Tool(
             function_declarations=[
                 types.FunctionDeclaration(
                     name="check_past_history",
-                    description="Fetches the user's stored memories. Call this whenever the user asks if you recognize a place, object, or person.",
-                    parameters={
-                        "type": "OBJECT",
-                        "properties": {
-                            "what_you_see": {"type": "STRING", "description": "Describe exactly what you see in the live video right now before checking the database."}
+                    description="CRITICAL: You MUST call this tool whenever the user asks 'What is this?', 'Do you recognize this?', or asks about their past.",
+                    parameters=types.Schema(
+                        type="OBJECT",
+                        properties={
+                            "what_you_see": types.Schema(
+                                type="STRING",
+                                description="Describe what you currently see in the live video."
+                            )
                         },
-                        "required": ["what_you_see"]
-                    }
+                        required=["what_you_see"]
+                    )
                 )
             ]
         )
 
-        # 3️⃣ System Instruction
+        # 3️⃣ AGGRESSIVE SYSTEM INSTRUCTION
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
 User name: {user_name}
 
 Instructions:
-Your task is to act as a live conversational partner.
-1. Greet the user warmly by name at the beginning.
-2. You are receiving a LIVE VIDEO STREAM.
-3. If the user asks "Have I been here?", "Do you recognize this?", or "What is this?":
-   - FIRST, look carefully at the LIVE VIDEO STREAM.
-   - SECOND, call the `check_past_history` tool. Pass a description of what you see to the `what_you_see` argument.
-4. The tool will return "Visual Fingerprints" (detailed text descriptions) of the user's past photos.
-5. COMPARE what you see in the live video to the text of the Visual Fingerprints. 
-6. IF YOU FIND A MATCH: Say "Yes, I recognize that!" and tell them their Memory Label and the Date.
-7. IF YOU DO NOT FIND A MATCH: Say "I don't see this in your stored memories," and then answer using your general knowledge.
+1. Greet the user warmly by name.
+2. You are receiving a LIVE VIDEO STREAM. Look at it constantly.
+3. **MANDATORY RULE:** If the user asks you to identify an object, place, or person (e.g. "What is this?", "Do you know this?"), YOU ARE FORBIDDEN from guessing based on general knowledge. You MUST call the `check_past_history` tool FIRST.
+4. When you call the tool, pass a description of what you see in the video.
+5. The tool will return "Visual Fingerprints" from the user's database. Compare the live video to these text fingerprints.
+6. IF MATCH FOUND: Say "Yes, I recognize that!" and share the memory label and date.
+7. IF NO MATCH: Say "I don't see this in your stored memories," and then tell them what it is using general knowledge.
 """
 
         # 4️⃣ Gemini Live Config
-        MODEL_ID = "gemini-live-2.5-flash-native-audio"  
+        MODEL_ID = "gemini-2.5-flash"  
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
@@ -86,7 +86,7 @@ Your task is to act as a live conversational partner.
                 )
             ),
             system_instruction=types.Content(parts=[types.Part(text=system_instruction)]),
-            tools=[history_tool] # Pass the schema here
+            tools=[history_tool] 
         )
 
         # 5️⃣ Connect to Gemini Live
@@ -119,12 +119,16 @@ Your task is to act as a live conversational partner.
                                     
                                     for part in server_content.model_turn.parts:
                                         
-                                        # 🔴 DETECT AND EXECUTE TOOL CALL MANUALLY
+                                        # 🔴 DETECT AND EXECUTE TOOL CALL
                                         if part.function_call and part.function_call.name == "check_past_history":
                                             what_you_see = part.function_call.args.get("what_you_see", "")
-                                            print(f"🛠️ [TOOL] Gemini called history! It sees: '{what_you_see}'", flush=True)
                                             
-                                            # Run Firestore check in a background thread so video doesn't freeze
+                                            # YOU WILL SEE THIS LOG
+                                            print(f"\n==========================================")
+                                            print(f"🛠️ [TOOL TRIGGERED] Gemini called history!")
+                                            print(f"👁️  Gemini sees: '{what_you_see}'")
+                                            print(f"==========================================\n", flush=True)
+                                            
                                             def fetch_db():
                                                 return [doc.to_dict() for doc in db.collection("users").document(user_id).collection("photos").stream()]
                                             
@@ -138,15 +142,14 @@ Your task is to act as a live conversational partner.
                                                     memories_context.append(f"Label: {user_desc} (Date: {date})\nVisual Details: {ai_desc}")
                                                 
                                                 if memories_context:
-                                                    tool_result = "Compare your 'what_you_see' description to these memories:\n\n" + "\n---\n".join(memories_context)
+                                                    tool_result = "Database matches found. Compare your 'what_you_see' to these:\n\n" + "\n---\n".join(memories_context)
                                                 else:
                                                     tool_result = "No past memories found."
                                             except Exception as e:
                                                 print(f"❌ DB Error: {e}")
                                                 tool_result = "Database error."
 
-                                            # Send the results back to Gemini immediately
-                                            print("✅ [TOOL] Sending database results back to Gemini.", flush=True)
+                                            print("✅ [TOOL] Sending database results back to AI.", flush=True)
                                             await session.send_client_content(
                                                 turns=[
                                                     types.Content(
@@ -161,14 +164,17 @@ Your task is to act as a live conversational partner.
                                                 ],
                                                 turn_complete=True
                                             )
-                                            continue # Skip the audio processing for this part
+                                            continue 
 
                                         # 🟢 Handle standard Audio and Text Responses
+                                        if part.text:
+                                            # DEBUG LOG: See what the AI is saying instead of calling the tool
+                                            print(f"💬 [AI SPEAKING] {part.text}", flush=True)
+                                            generated_text += part.text
+                                            
                                         if part.inline_data:
                                             generated_audio_base64 = base64.b64encode(part.inline_data.data).decode("utf-8")
-                                        if part.text:
-                                            generated_text += part.text
-                                    
+                                            
                                     if generated_text or generated_audio_base64:
                                         try:
                                             await websocket.send_json({
