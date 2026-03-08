@@ -10,108 +10,114 @@ import {
   Upload, 
   CameraIcon,
   PlayIcon, 
-  StopCircle 
+  StopCircle,
+  ImageIcon
 } from 'lucide-react';
 
-// --- EMBEDDED AUDIO PROCESSOR (High Gain + Little Endian) ---
+// Audio Worklet Processor Code - 16kHz PCM16 Little Endian
 const AUDIO_WORKLET_CODE = `
 class AudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this.audioBuffer = [];
-    this.bufferSize = 4096;
-    this.gain = 5.0; // 🔊 High Gain to trigger Interruption/VAD
+    this.buffer = [];
+    this.BUFFER_SIZE = 2048; // Smaller chunks for lower latency
   }
 
   process(inputs, outputs, parameters) {
     const input = inputs[0];
-    if (input && input.length > 0) {
-      const channelData = input[0];
-      
-      // Fill local buffer
-      for (let i = 0; i < channelData.length; i++) {
-        this.audioBuffer.push(channelData[i]);
-      }
-
-      // Flush when full
-      if (this.audioBuffer.length >= this.bufferSize) {
-        const chunkToSend = this.audioBuffer.slice(0, this.bufferSize);
-        this.audioBuffer = this.audioBuffer.slice(this.bufferSize);
-        
-        // Create DataView for explicit Little Endian encoding
-        const buffer = new ArrayBuffer(chunkToSend.length * 2);
-        const view = new DataView(buffer);
-
-        for (let i = 0; i < chunkToSend.length; i++) {
-            // Apply gain and clamp
-            let s = Math.max(-1, Math.min(1, chunkToSend[i] * this.gain));
-            // Convert to PCM16
-            s = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            // Write Int16, Little Endian = true
-            view.setInt16(i * 2, s, true); 
-        }
-
-        // Send raw ArrayBuffer to main thread
-        this.port.postMessage({ 
-            type: 'audio_data', 
-            buffer: buffer 
-        }, [buffer]);
-      }
+    if (!input || !input[0]) return true;
+    
+    const channelData = input[0];
+    
+    for (let i = 0; i < channelData.length; i++) {
+      this.buffer.push(channelData[i]);
     }
-    return true; 
+
+    while (this.buffer.length >= this.BUFFER_SIZE) {
+      const chunk = this.buffer.splice(0, this.BUFFER_SIZE);
+      
+      // Convert to PCM16 Little Endian
+      const pcmData = new ArrayBuffer(chunk.length * 2);
+      const view = new DataView(pcmData);
+      
+      for (let i = 0; i < chunk.length; i++) {
+        // Clamp and convert to int16
+        const sample = Math.max(-1, Math.min(1, chunk[i]));
+        const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        view.setInt16(i * 2, int16, true); // true = little endian
+      }
+      
+      this.port.postMessage({ type: 'audio', buffer: pcmData }, [pcmData]);
+    }
+    
+    return true;
   }
 }
 registerProcessor('audio-processor', AudioProcessor);
 `;
 
+// Playback audio context at 24kHz (Gemini output rate)
+let playbackContext = null;
+let nextPlayTime = 0;
+let audioQueue = [];
 
-const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-let nextPlayTime = 0; // Tracks when the next chunk should play
-let activeAudioSources = [];
-
-function clearAudioQueue() {
-  activeAudioSources.forEach(source => {
-    try { source.stop(); source.disconnect(); } catch (e) {}
-  });
-  activeAudioSources = [];
-  nextPlayTime = audioContext.currentTime; // Reset timing back to now
+function initPlaybackContext() {
+  if (!playbackContext) {
+    playbackContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+  }
+  return playbackContext;
 }
 
+function clearAudioQueue() {
+  audioQueue.forEach(source => {
+    try { 
+      source.stop(); 
+      source.disconnect(); 
+    } catch (e) {}
+  });
+  audioQueue = [];
+  nextPlayTime = 0;
+}
 
 async function playPcmAudio(base64Data) {
   try {
-
+    const ctx = initPlaybackContext();
+    if (ctx.state === 'suspended') await ctx.resume();
     
+    // Decode base64 to PCM16
     const binaryString = window.atob(base64Data);
     const len = binaryString.length;
-    const bytes = new Int16Array(len / 2);
-    for (let i = 0; i < len / 2; i++) {
-      bytes[i] = binaryString.charCodeAt(i * 2) | (binaryString.charCodeAt(i * 2 + 1) << 8);
+    const pcm16 = new Int16Array(len / 2);
+    
+    for (let i = 0; i < pcm16.length; i++) {
+      pcm16[i] = binaryString.charCodeAt(i * 2) | (binaryString.charCodeAt(i * 2 + 1) << 8);
     }
     
-    const buffer = audioContext.createBuffer(1, bytes.length, 24000);
-    const channelData = buffer.getChannelData(0);
-    for (let i = 0; i < bytes.length; i++) {
-      channelData[i] = bytes[i] / 32768.0;
+    // Convert to float32 for Web Audio
+    const audioBuffer = ctx.createBuffer(1, pcm16.length, 24000);
+    const channelData = audioBuffer.getChannelData(0);
+    
+    for (let i = 0; i < pcm16.length; i++) {
+      channelData[i] = pcm16[i] / 32768.0;
     }
     
-    const source = audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContext.destination);
-
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    
     source.onended = () => {
-        activeAudioSources = activeAudioSources.filter(s => s !== source);
+      audioQueue = audioQueue.filter(s => s !== source);
     };
     
-    const currentTime = audioContext.currentTime;
-    
+    const currentTime = ctx.currentTime;
     if (nextPlayTime < currentTime) {
       nextPlayTime = currentTime;
     }
     
     source.start(nextPlayTime);
-    activeAudioSources.push(source);
-    nextPlayTime += buffer.duration;
+    audioQueue.push(source);
+    nextPlayTime += audioBuffer.duration;
+    
   } catch (err) {
     console.error("Audio playback error:", err);
   }
@@ -121,7 +127,7 @@ export default function MemoryMateApp() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // --- SignUp State Variables ---
+  // SignUp State
   const [name, setName] = useState('');
   const [signupUserId, setSignupUserId] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
@@ -129,13 +135,13 @@ export default function MemoryMateApp() {
   const [signupErrorMsg, setSignupErrorMsg] = useState('');
   const [isSignupLoading, setIsSignupLoading] = useState(false);
 
-  // --- Login State Variables ---
+  // Login State
   const [loginUserId, setLoginUserId] = useState(''); 
   const [loginPassword, setLoginPassword] = useState('');
   const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
   const [isLoginLoading, setIsLoginLoading] = useState(false);
 
-  // --- Photo Upload State Variables ---
+  // Photo Upload State
   const [photoFile, setPhotoFile] = useState(null); 
   const [photoDescription, setPhotoDescription] = useState('');
   const [photoDate, setPhotoDate] = useState('');
@@ -143,24 +149,24 @@ export default function MemoryMateApp() {
   const [isPhotoUploading, setIsPhotoUploading] = useState(false);
   const fileInputRef = useRef(null);
 
-  // --- Live Camera State Variables (for Photo Capture) ---
+  // Camera Capture State
   const [isCameraActive, setIsCameraActive] = useState(false); 
   const webcamRefCapture = useRef(null); 
   const [capturedImageSrc, setCapturedImageSrc] = useState(null);
 
-  // --- Live Assistance State Variables (WebSocket based) ---
+  // Live Assistance State
   const [isLiveAssistanceActive, setIsLiveAssistanceActive] = useState(false);
   const webcamRefLive = useRef(null); 
   const [liveVideoError, setLiveVideoError] = useState('');
   const [processingFrame, setProcessingFrame] = useState(false);
   const [aiTextResponse, setAiTextResponse] = useState(''); 
   const wsRef = useRef(null); 
-  const captureIntervalIdRef = useRef(null); 
+  const frameIntervalRef = useRef(null); 
   
-  // Audio Input Refs
-  const audioContextMicRef = useRef(null);
+  // Audio Capture Refs
+  const audioContextRef = useRef(null);
   const micStreamRef = useRef(null);
-  const audioProcessorRef = useRef(null);
+  const workletNodeRef = useRef(null);
 
   const BACKEND_API_BASE = "https://alzheimer-backend-902738993392.us-central1.run.app";
     
@@ -177,79 +183,106 @@ export default function MemoryMateApp() {
 
   useEffect(() => {
     return () => {
-      stopLiveAssistance(); // Cleanup on unmount or screen change
+      stopLiveAssistance();
     };
   }, [currentScreen]);
 
-  // This function now uses AudioWorklet for better performance and to avoid deprecated APIs.
- const startMicCapture = async () => {
-  try {
-   if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+  // Start microphone capture at 16kHz
+  const startMicCapture = async () => {
+    try {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-     channelCount: 1,
-     echoCancellation: true,
-     noiseSuppression: true,
-     autoGainControl: true,
-     sampleRate: 16000
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      micStreamRef.current = stream;
+
+      // Create AudioContext at 16kHz for Gemini input
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      audioContextRef.current = audioCtx;
+      
+      if (audioCtx.state === 'suspended') {
+        await audioCtx.resume();
+      }
+
+      // Load audio worklet
+      const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
+      const workletUrl = URL.createObjectURL(blob);
+      await audioCtx.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
+
+      // Create worklet node
+      const workletNode = new AudioWorkletNode(audioCtx, 'audio-processor');
+      workletNodeRef.current = workletNode;
+
+      // Handle audio data from worklet
+      workletNode.port.onmessage = (event) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        
+        const { type, buffer } = event.data;
+        if (type === 'audio' && buffer) {
+          // Convert ArrayBuffer to base64
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const base64 = window.btoa(binary);
+          
+          wsRef.current.send(JSON.stringify({ 
+            type: "audio", 
+            audioBase64: base64 
+          }));
+        }
+      };
+
+      // Connect microphone to worklet
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(workletNode);
+      
+      console.log("🎤 Microphone capture started at 16kHz");
+
+    } catch (err) {
+      console.error("Microphone error:", err);
+      setLiveVideoError("Microphone access failed: " + err.message);
     }
-   });
-   micStreamRef.current = stream;
+  };
 
-   // Force 16k context
-   const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-   audioContextMicRef.current = audioCtx;
-   if (audioCtx.state === 'suspended') await audioCtx.resume();
-
-   // Load Embedded Processor
-   const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
-   const workletUrl = URL.createObjectURL(blob);
-   await audioCtx.audioWorklet.addModule(workletUrl);
-
-   const processorNode = new AudioWorkletNode(audioCtx, 'audio-processor');
-   audioProcessorRef.current = processorNode;
-
-   const source = audioCtx.createMediaStreamSource(stream);
-
-   // Helper: ArrayBuffer -> Base64
-   const arrayBufferToBase64 = (buffer) => {
-     let binary = '';
-     const bytes = new Uint8Array(buffer);
-     const len = bytes.byteLength;
-     for (let i = 0; i < len; i++) {
-       binary += String.fromCharCode(bytes[i]);
-     }
-     return window.btoa(binary);
-   };
-
-   // Handle message from worklet
-   processorNode.port.onmessage = (event) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    
-    // Check for "buffer" property now
-    const { type, buffer } = event.data;
-    
-    if (type === 'audio_data' && buffer) {
-      const audioBase64 = arrayBufferToBase64(buffer);
-      wsRef.current.send(JSON.stringify({ type: "audio", audioBase64 }));
+  // Send video frames
+  const sendVideoFrame = () => {
+    if (!webcamRefLive.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      return;
     }
-   };
 
-   source.connect(processorNode);
-   console.log("🎤 Microphone capture started.");
-
-  } catch (err) {
-   console.error("Microphone error:", err);
-   setLiveVideoError("Microphone access failed.");
-  }
- };
-  
+    try {
+      const imageSrc = webcamRefLive.current.getScreenshot({ 
+        width: 640, 
+        height: 480 
+      });
+      
+      if (imageSrc) {
+        const base64Data = imageSrc.split(',')[1];
+        wsRef.current.send(JSON.stringify({ 
+          type: "frame", 
+          frameBase64: base64Data 
+        }));
+      }
+    } catch (err) {
+      console.error("Error capturing frame:", err);
+    }
+  };
   
   const startLiveAssistance = async () => {
-    // Ensure audio context is resumed by a user gesture, like the start button click
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
+    // Initialize playback context with user gesture
+    const ctx = initPlaybackContext();
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
     }
     
     const token = localStorage.getItem('token');
@@ -262,34 +295,42 @@ export default function MemoryMateApp() {
     setIsLiveAssistanceActive(true);
     setLiveVideoError('');
     setAiTextResponse('');
+    clearAudioQueue();
 
     const wsUrl = `wss://${new URL(BACKEND_API_BASE).host}/api/live/ws/live/process-stream?token=${token}`;
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {
-      console.log('WebSocket connected.');
-      startMicCapture(); // Start capturing audio input immediately
-      // Speed up the frame capture to 1 per second for a "real-time" video feel
-      captureIntervalIdRef.current = setInterval(sendLiveFrame, 1000); 
+      console.log('WebSocket connected');
+      
+      // Start mic capture after connection
+      startMicCapture();
+      
+      // Start sending video frames every 2 seconds
+      frameIntervalRef.current = setInterval(sendVideoFrame, 2000);
     };
 
     wsRef.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      try {
+        const data = JSON.parse(event.data);
 
-      if (data.type === "audioResponse") {
-        if (data.description) setAiTextResponse(data.description);
-        if (data.audioBase64) playPcmAudio(data.audioBase64);
-      } else if (data.type === "interrupted") {
-        clearAudioQueue();
-      } else if (data.error) {
-        setLiveVideoError(`AI Error: ${data.error}`);
-      }
-
-      // This should be outside the conditional logic to ensure it always runs
-      // after a message is processed, preventing the UI from getting stuck.
-      // We can add a check to only set it if it's currently true.
-      if (processingFrame) {
-        setProcessingFrame(false);
+        if (data.type === "audioResponse" && data.audioBase64) {
+          playPcmAudio(data.audioBase64);
+        }
+        
+        if (data.type === "textResponse" && data.text) {
+          setAiTextResponse(prev => prev + data.text);
+        }
+        
+        if (data.type === "interrupted") {
+          clearAudioQueue();
+        }
+        
+        if (data.error) {
+          setLiveVideoError(`AI Error: ${data.error}`);
+        }
+      } catch (err) {
+        console.error("Error parsing message:", err);
       }
     };
 
@@ -299,56 +340,51 @@ export default function MemoryMateApp() {
       stopLiveAssistance();
     };
 
-    wsRef.current.onclose = () => {
-      console.log('WebSocket disconnected.');
-      stopLiveAssistance();
+    wsRef.current.onclose = (event) => {
+      console.log('WebSocket disconnected:', event.code, event.reason);
+      if (isLiveAssistanceActive) {
+        stopLiveAssistance();
+      }
     };
   };
   
   const stopLiveAssistance = () => {
-    if (captureIntervalIdRef.current) {
-      clearInterval(captureIntervalIdRef.current);
-      captureIntervalIdRef.current = null;
+    // Stop frame capture
+    if (frameIntervalRef.current) {
+      clearInterval(frameIntervalRef.current);
+      frameIntervalRef.current = null;
     }
+    
+    // Close WebSocket
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
-    // Clean up Audio mic connections
-    if (audioProcessorRef.current && audioContextMicRef.current) {
-      if (audioProcessorRef.current.port) {
-        audioProcessorRef.current.port.postMessage({ type: 'stop' });
-      }
-      audioProcessorRef.current.disconnect(); // Disconnect the worklet node
-      audioContextMicRef.current.close();
-      audioProcessorRef.current = null;
-      audioContextMicRef.current = null;
+    
+    // Stop audio worklet
+    if (workletNodeRef.current) {
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
     }
+    
+    // Close audio context
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    // Stop microphone
     if (micStreamRef.current) {
       micStreamRef.current.getTracks().forEach(track => track.stop());
       micStreamRef.current = null;
     }
 
+    // Clear audio queue
+    clearAudioQueue();
+
     setIsLiveAssistanceActive(false);
     setAiTextResponse('');
     setProcessingFrame(false);
-  };
-
-  const sendLiveFrame = async () => {
-    if (!webcamRefLive.current) return; 
-    setProcessingFrame(true); 
-
-    try {
-      const imageSrc = webcamRefLive.current.getScreenshot({width: 640, height: 360}); 
-      if (!imageSrc) return;
-
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        const base64Data = imageSrc.split(',')[1];
-        wsRef.current.send(JSON.stringify({ type: "frame", frameBase64: base64Data }));
-      }
-    } catch (err) {
-      console.error("Error capturing or sending frame:", err);
-    }
   };
 
   const handleLogin = async () => {
@@ -368,19 +404,18 @@ export default function MemoryMateApp() {
 
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        const textError = await response.text();
-        console.error("Server returned HTML or text instead of JSON:", textError);
-        throw new Error("Server configuration error. Check console.");
+        throw new Error("Server configuration error.");
       }
       
       const data = await response.json();
       if (response.ok) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('userId', data.user.userId);
-        setLoginUserId(''); setLoginPassword('');
+        setLoginUserId(''); 
+        setLoginPassword('');
         setCurrentScreen('dashboard');
       } else {
-        setLoginErrorMsg(data.message || 'Login failed. Please check User ID or password.');
+        setLoginErrorMsg(data.message || 'Login failed.');
       }
     } catch (err) {
       setLoginErrorMsg('Failed to connect to the server.');
@@ -393,7 +428,7 @@ export default function MemoryMateApp() {
     setIsSignupLoading(true);
     setSignupErrorMsg('');
     if (signupPassword !== confirmPassword) {
-      setSignupErrorMsg('Passwords do not match. Please try again.');
+      setSignupErrorMsg('Passwords do not match.');
       setIsSignupLoading(false);
       return;
     }
@@ -411,19 +446,20 @@ export default function MemoryMateApp() {
 
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
-        const textError = await response.text();
-        console.error("Server returned HTML or text instead of JSON:", textError);
-        throw new Error("Server configuration error. Check console.");
+        throw new Error("Server configuration error.");
       }
       
       const data = await response.json();
       if (response.ok) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('userId', data.user.userId);
-        setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
+        setName(''); 
+        setSignupUserId(''); 
+        setSignupPassword(''); 
+        setConfirmPassword('');
         setCurrentScreen('dashboard');
       } else {
-        setSignupErrorMsg(data.message || 'Something went wrong during signup.');
+        setSignupErrorMsg(data.message || 'Signup failed.');
       }
     } catch (err) {
       setSignupErrorMsg('Failed to connect to the server.');
@@ -442,8 +478,7 @@ export default function MemoryMateApp() {
       try {
         const response = await fetch(capturedImageSrc);
         const blob = await response.blob();
-        photoToSend = new File([blob], `captured_photo_${Date.now()}.jpeg`, { type: blob.type });
-        setPhotoFile(photoToSend); 
+        photoToSend = new File([blob], `captured_${Date.now()}.jpeg`, { type: blob.type });
       } catch (error) {
         setPhotoUploadErrorMsg('Failed to process captured image.');
         setIsPhotoUploading(false);
@@ -475,13 +510,6 @@ export default function MemoryMateApp() {
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        const textError = await response.text();
-        console.error("Server returned HTML or text instead of JSON (Photo Upload):", textError);
-        throw new Error("Server configuration error for photo upload. Check console.");
-      }
       
       const data = await response.json();
       if (response.ok) {
@@ -501,24 +529,9 @@ export default function MemoryMateApp() {
     }
   };
 
-  // --- handleFileChange and Drag/Drop functions for photo upload ---
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
       setPhotoFile(e.target.files[0]);
-      setCapturedImageSrc(null); 
-      setIsCameraActive(false); 
-      setPhotoUploadErrorMsg('');
-    }
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setPhotoFile(e.dataTransfer.files[0]);
       setCapturedImageSrc(null); 
       setIsCameraActive(false); 
       setPhotoUploadErrorMsg('');
@@ -534,20 +547,16 @@ export default function MemoryMateApp() {
     }
   };
 
-  // --- Camera capture functions (for Store Photos screen) ---
   const videoConstraintsCapture = {
     facingMode: "environment" 
   };
 
-  const capturePhoto = useCallback(
-    () => {
-      const imageSrc = webcamRefCapture.current.getScreenshot({width: 1280, height: 720}); 
-      setCapturedImageSrc(imageSrc);
-      setPhotoFile(null); 
-      setPhotoUploadErrorMsg('');
-    },
-    [webcamRefCapture]
-  );
+  const capturePhoto = useCallback(() => {
+    const imageSrc = webcamRefCapture.current.getScreenshot({ width: 1280, height: 720 }); 
+    setCapturedImageSrc(imageSrc);
+    setPhotoFile(null); 
+    setPhotoUploadErrorMsg('');
+  }, [webcamRefCapture]);
   
   const handleRetryCameraCapture = () => {
     setCapturedImageSrc(null);
@@ -562,11 +571,21 @@ export default function MemoryMateApp() {
   const BackButton = ({ onClick }) => (
     <button 
       onClick={() => {
-        setSignupErrorMsg(''); setLoginErrorMsg(''); setPhotoUploadErrorMsg(''); setLiveVideoError('');
-        setLoginUserId(''); setLoginPassword('');
-        setName(''); setSignupUserId(''); setSignupPassword(''); setConfirmPassword('');
-        setPhotoFile(null); setPhotoDescription(''); setPhotoDate('');
-        setIsCameraActive(false); setCapturedImageSrc(null); 
+        setSignupErrorMsg(''); 
+        setLoginErrorMsg(''); 
+        setPhotoUploadErrorMsg(''); 
+        setLiveVideoError('');
+        setLoginUserId(''); 
+        setLoginPassword('');
+        setName(''); 
+        setSignupUserId(''); 
+        setSignupPassword(''); 
+        setConfirmPassword('');
+        setPhotoFile(null); 
+        setPhotoDescription(''); 
+        setPhotoDate('');
+        setIsCameraActive(false); 
+        setCapturedImageSrc(null); 
         stopLiveAssistance();
         onClick();
       }}
@@ -577,7 +596,7 @@ export default function MemoryMateApp() {
     </button>
   );
 
- // 1. HOME SCREEN
+  // 1. HOME SCREEN
   const renderHome = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in duration-500">
       <div className="flex flex-col items-center mb-16">
@@ -603,7 +622,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 2. LOGIN SCREEN (Updated for userId)
+  // 2. LOGIN SCREEN
   const renderLogin = () => (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-12">Login</h2>
@@ -734,7 +753,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 5. STORE PHOTOS SCREEN (Updated with Camera option)
+  // 5. STORE PHOTOS SCREEN
   const renderStorePhotos = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 animate-in fade-in relative">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Store A Photo</h2>
@@ -747,29 +766,27 @@ export default function MemoryMateApp() {
           </div>
         )}
 
-        {/* --- Photo Source Selection --- */}
         {!isCameraActive && !photoFile && !capturedImageSrc && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                <button 
-                    onClick={() => fileInputRef.current.click()}
-                    className="flex flex-col items-center justify-center bg-blue-100 border-4 border-blue-300 text-blue-900 p-8 rounded-2xl shadow-md hover:bg-blue-200 transition-colors"
-                >
-                    <Upload size={64} className="mb-4" />
-                    <span className="text-3xl font-bold">Upload from Device</span>
-                    <span className="text-xl font-medium mt-2">Choose photo from your phone or computer</span>
-                </button>
-                <button 
-                    onClick={() => setIsCameraActive(true)}
-                    className="flex flex-col items-center justify-center bg-green-100 border-4 border-green-300 text-green-900 p-8 rounded-2xl shadow-md hover:bg-green-200 transition-colors"
-               >
-                     <CameraIcon size={64} className="mb-4 text-green-900" />
-                    <span className="text-3xl font-bold text-green-900">Take a Photo Now</span>
-                    <span className="text-xl font-medium mt-2">Use your device's camera</span>
-                </button>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+            <button 
+              onClick={() => fileInputRef.current.click()}
+              className="flex flex-col items-center justify-center bg-blue-100 border-4 border-blue-300 text-blue-900 p-8 rounded-2xl shadow-md hover:bg-blue-200 transition-colors"
+            >
+              <Upload size={64} className="mb-4" />
+              <span className="text-3xl font-bold">Upload from Device</span>
+              <span className="text-xl font-medium mt-2">Choose photo from your phone or computer</span>
+            </button>
+            <button 
+              onClick={() => setIsCameraActive(true)}
+              className="flex flex-col items-center justify-center bg-green-100 border-4 border-green-300 text-green-900 p-8 rounded-2xl shadow-md hover:bg-green-200 transition-colors"
+            >
+              <CameraIcon size={64} className="mb-4 text-green-900" />
+              <span className="text-3xl font-bold text-green-900">Take a Photo Now</span>
+              <span className="text-xl font-medium mt-2">Use your device's camera</span>
+            </button>
+          </div>
         )}
 
-        {/* --- Camera View (for Photo Capture) --- */}
         {isCameraActive && !capturedImageSrc && (
           <div className="bg-slate-800 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-slate-900 shadow-2xl space-y-6">
             <Webcam
@@ -796,7 +813,6 @@ export default function MemoryMateApp() {
           </div>
         )}
 
-        {/* --- Captured Image Preview --- */} 
         {capturedImageSrc && (
           <div className="bg-slate-100 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-blue-500 shadow-2xl space-y-6">
             <h3 className="text-3xl font-bold text-blue-900 mt-2">Captured Photo Preview:</h3>
@@ -819,20 +835,19 @@ export default function MemoryMateApp() {
           </div>
         )}
 
-        {/* --- Uploaded File Preview --- */}
         {photoFile && !isCameraActive && !capturedImageSrc && (
-            <div className="bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center shadow-md">
-                <ImageIcon size={64} className="text-blue-800 mb-4" />
-                <span className="text-3xl font-bold text-blue-900 text-center">{photoFile.name} (Ready to upload)</span>
-                <button 
-                  onClick={handleClearPhoto} 
-                  className="mt-6 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600 transition-colors"
-                >
-                  Remove Photo
-                </button>
-            </div>
+          <div className="bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center shadow-md">
+            <ImageIcon size={64} className="text-blue-800 mb-4" />
+            <span className="text-3xl font-bold text-blue-900 text-center">{photoFile.name} (Ready to upload)</span>
+            <button 
+              onClick={handleClearPhoto} 
+              className="mt-6 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600 transition-colors"
+            >
+              Remove Photo
+            </button>
+          </div>
         )}
-        {/* Hidden input for actual file selection */}
+
         <input 
           type="file" 
           accept="image/*" 
@@ -841,67 +856,63 @@ export default function MemoryMateApp() {
           className="hidden" 
         />
 
-        {/* --- Inputs (Display only if a photo is selected/captured or ready to be selected) --- */}
         {(photoFile || capturedImageSrc || (!photoFile && !capturedImageSrc && !isCameraActive)) && ( 
-            <>
-                <div>
-                    <label className="text-3xl font-bold text-blue-900 mb-4 block">
-                        Who or what is in this photo?
-                    </label>
-                    <input 
-                        type="text" 
-                        value={photoDescription}
-                        onChange={(e) => setPhotoDescription(e.target.value)}
-                        placeholder="Type details for this picture..."
-                        className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
-                    />
-                </div>
-
-                <div>
-                    <label className="text-3xl font-bold text-blue-900 mb-4 block">
-                        Date of photo
-                    </label>
-                    <input 
-                        type="date" 
-                        value={photoDate}
-                        onChange={(e) => setPhotoDate(e.target.value)}
-                        className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
-                    />
-                </div>
-            </>
-        )}
-        
-
-        {/* --- Action Buttons (only show if a photo is ready AND NOT already handled by capturedImageSrc buttons) --- */}
-        {(photoFile && !capturedImageSrc) && ( 
-            <div className="flex flex-col space-y-6 pt-6">
-                <button 
-                    onClick={handlePhotoUpload}
-                    disabled={isPhotoUploading || !photoDescription || !photoDate}
-                    className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
-                >
-                    {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
-                </button>
-                
-                <button 
-                    onClick={() => {
-                        setPhotoUploadErrorMsg(''); 
-                        setPhotoFile(null); 
-                        setPhotoDescription('');
-                        setPhotoDate('');
-                        setIsCameraActive(false); 
-                        setCapturedImageSrc(null); 
-                        setCurrentScreen('dashboard');
-                    }}
-                    className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200"
-                >
-                    Cancel
-                </button>
+          <>
+            <div>
+              <label className="text-3xl font-bold text-blue-900 mb-4 block">
+                Who or what is in this photo?
+              </label>
+              <input 
+                type="text" 
+                value={photoDescription}
+                onChange={(e) => setPhotoDescription(e.target.value)}
+                placeholder="Type details for this picture..."
+                className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
+              />
             </div>
+
+            <div>
+              <label className="text-3xl font-bold text-blue-900 mb-4 block">
+                Date of photo
+              </label>
+              <input 
+                type="date" 
+                value={photoDate}
+                onChange={(e) => setPhotoDate(e.target.value)}
+                className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900" 
+              />
+            </div>
+          </>
+        )}
+
+        {(photoFile && !capturedImageSrc) && ( 
+          <div className="flex flex-col space-y-6 pt-6">
+            <button 
+              onClick={handlePhotoUpload}
+              disabled={isPhotoUploading || !photoDescription || !photoDate}
+              className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-green-800 border-4 border-green-800 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
+            >
+              {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
+            </button>
+            
+            <button 
+              onClick={() => {
+                setPhotoUploadErrorMsg(''); 
+                setPhotoFile(null); 
+                setPhotoDescription('');
+                setPhotoDate('');
+                setIsCameraActive(false); 
+                setCapturedImageSrc(null); 
+                setCurrentScreen('dashboard');
+              }}
+              className="w-full bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl shadow-md border-4 border-red-300 hover:bg-red-200"
+            >
+              Cancel
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Success Modal Overlay */}
       {showSuccess && (
         <div 
           className="fixed inset-0 bg-blue-950/90 flex flex-col items-center justify-center z-50 p-6 animate-in fade-in duration-300"
@@ -921,7 +932,7 @@ export default function MemoryMateApp() {
     </div>
   );
 
-  // 6. UNDERSTAND THE PLACE LIVE SCREEN (UPDATED for WebSockets)  
+  // 6. LIVE ASSISTANCE SCREEN
   const renderLiveView = () => (
     <div className="flex flex-col items-center min-h-screen p-6 pt-10 bg-slate-100 animate-in fade-in">
       <h2 className="text-5xl font-extrabold text-blue-900 mb-8 text-center">Live Assistance</h2>
@@ -936,8 +947,9 @@ export default function MemoryMateApp() {
         <>
           <div className="w-full max-w-3xl bg-slate-800 aspect-video rounded-3xl flex flex-col items-center justify-center shadow-2xl border-8 border-slate-900 mb-10 overflow-hidden relative">
             <Webcam 
-              audio={false} // WE Mute this because we manually capture audio stream for Gemini
+              audio={false}
               ref={webcamRefLive} 
+              screenshotFormat="image/jpeg"
               videoConstraints={{ facingMode: "environment" }} 
               className="rounded-xl w-full h-full object-cover" 
             />
@@ -949,17 +961,22 @@ export default function MemoryMateApp() {
 
           <div className="flex flex-col items-center justify-center space-y-6 mb-12 p-8 bg-blue-50 rounded-3xl border-4 border-blue-200 w-full max-w-3xl">
             <div className="flex items-center space-x-6 text-blue-800">
-              <Mic size={48} className={`bg-blue-200 p-3 rounded-full animate-pulse`} />
+              <Mic size={48} className="bg-blue-200 p-3 rounded-full animate-pulse" />
               <div className="flex space-x-2">
-                <div className={`w-4 h-12 bg-blue-600 rounded-full animate-bounce`} style={{ animationDelay: '0ms' }}></div>
-                <div className={`w-4 h-16 bg-blue-600 rounded-full animate-bounce`} style={{ animationDelay: '150ms' }}></div>
-                <div className={`w-4 h-10 bg-blue-600 rounded-full animate-bounce`} style={{ animationDelay: '300ms' }}></div>
-                <div className={`w-4 h-14 bg-blue-600 rounded-full animate-bounce`} style={{ animationDelay: '450ms' }}></div>
+                <div className="w-4 h-12 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-4 h-16 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-4 h-10 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                <div className="w-4 h-14 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '450ms' }}></div>
               </div>
             </div>
             <span className="text-3xl font-bold text-blue-900 text-center">
               Listening and analyzing context in real time...
             </span>
+            {aiTextResponse && (
+              <p className="text-2xl text-blue-800 text-center mt-4 p-4 bg-white rounded-xl">
+                {aiTextResponse}
+              </p>
+            )}
           </div>
 
           <button onClick={stopLiveAssistance} className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 transition-all mt-auto mb-6 flex justify-center items-center">
