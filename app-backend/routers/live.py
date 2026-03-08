@@ -2,6 +2,7 @@ import os
 import asyncio
 import base64
 import traceback
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
@@ -11,13 +12,12 @@ import jose.jwt as jwt
 
 router = APIRouter()
 
-# ---------------- ENV ----------------
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 LOCATION = os.environ.get("GCP_REGION", "us-central1")
 BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
 
-# ---------------- CLIENTS ----------------
+# Clients
 db = firestore.Client(project=PROJECT_ID)
 storage_client = storage.Client(project=PROJECT_ID)
 bucket = storage_client.bucket(BUCKET_NAME)
@@ -28,207 +28,245 @@ client = genai.Client(
     location=LOCATION
 )
 
-# ---------------- LOGGER ----------------
-def log(msg):
-    print(msg, flush=True)
+async def get_gcs_file_bytes(filename: str) -> bytes:
+    """Downloads a file from GCS and returns its content as bytes."""
+    blob = bucket.blob(filename)
+    return await asyncio.to_thread(blob.download_as_bytes)
 
-# ---------------- WEBSOCKET ----------------
+
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    log("🔌 Client connected to Live Stream")
+    print("🔌 Client connected to Live Stream")
 
+    # Session state tracking
     session_alive = True
-    audio_count = 0
-    frame_count = 0
-
+    
     try:
-        # ---------------- AUTH ----------------
+        # 1️⃣ Validate JWT Token
         token = websocket.query_params.get("token")
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
         except Exception as e:
-            log(f"❌ Token error: {e}")
+            print(f"❌ Token Error: {e}")
             await websocket.close(code=1008)
             return
 
-        # ---------------- USER ----------------
+        # 2️⃣ Load User Info
         user_name = user_id
-        try:
-            user_doc = db.collection("users").document(user_id).get()
-            if user_doc.exists:
-                user_name = user_doc.to_dict().get("name", user_id)
-        except Exception:
-            pass
+        user_doc = db.collection("users").document(user_id).get()
+        if user_doc.exists:
+            user_name = user_doc.to_dict().get("name", user_id)
 
-        # ---------------- MEMORIES ----------------
-        memories = []
-        try:
-            photos = db.collection("users").document(user_id).collection("photos").stream()
-            for doc in photos:
-                data = doc.to_dict()
-                if data.get("description"):
-                    memories.append(f"{data['description']} (Date: {data.get('photoDate')})")
-        except Exception:
-            pass
+        # 3️⃣ Load memories with images as context parts
+        memories_context_parts = []
+        photos_ref = db.collection("users").document(user_id).collection("photos").stream()
+        for doc in photos_ref:
+            data = doc.to_dict()
+            if "description" in data and "filename" in data:
+                description = data.get("description", "Unknown memory")
+                date = data.get("photoDate", "Unknown date")
+                filename = data.get("filename")
+                
+                # Add text part for the memory
+                memories_context_parts.append(types.Part(text=f"Memory - Description: {description}, Date: {date}"))
+                
+                # Add image part for the memory
+                try:
+                    image_bytes = await get_gcs_file_bytes(filename)
+                    memories_context_parts.append(types.Part(
+                        inline_data=types.Blob(data=image_bytes, mime_type="image/jpeg")
+                    ))
+                except Exception as e:
+                    print(f"⚠️ Could not load image {filename} from GCS: {e}")
 
-        memories_text = "\n".join(memories) if memories else "No stored memories."
+        # 4️⃣ System Instruction
+        system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
-        # ---------------- SYSTEM PROMPT ----------------
-        system_prompt = f"""
-You are MemoryMate, a caring AI helping a person with memory loss.
+User name: {user_name}
 
-User: {user_name}
+I have provided you with the user's stored memories (photos and descriptions) in the previous turn.
 
-Known memories:
-{memories_text}
-
-Speak gently and clearly.
-Keep responses short.
-If the user shows something using the camera, describe it.
-If it matches a stored memory, remind them kindly.
-Ask them if they are looking for something else and respond accordingly.
+Instructions:
+1. Greet the user warmly by name.
+2. Listen to their voice and respond naturally.
+3. When they show you something via camera, describe what you see.
+4. If what they show matches a stored memory, remind them about it kindly.
+5. Speak clearly, slowly, and with compassion.
+6. Keep responses concise and helpful.
 """
 
-        # ---------------- CONFIG ----------------
+        # 5️⃣ Gemini Live Config
         MODEL_ID = "gemini-live-2.5-flash-native-audio"
-
+        
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
-                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede")
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name="Aoede"
+                    )
                 )
             ),
-            system_instruction=types.Content(parts=[types.Part(text=system_prompt)])
+            system_instruction=types.Content(
+                parts=[types.Part(text=system_instruction)]
+            )
         )
 
-        # ---------------- GEMINI SESSION ----------------
+        # 6️⃣ Connect to Gemini Live
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
-            log("🟢 Connected to Gemini Live")
+            print("🟢 Connected to Gemini Live")
+            session_alive = True
 
-            # ---------------- RECEIVE LOOP ----------------
-            async def receive_loop():
+            # Task 1: Receive all messages from Gemini and forward to client
+            async def receive_from_gemini():
                 nonlocal session_alive
                 try:
-                    log("🟢 Receive loop started")
-                    async for msg in session.receive():
+                    # Send memories as initial context before the conversation starts
+                    if memories_context_parts:
+                        print(f"✅ Sending {len(memories_context_parts) // 2} reference photos as context.")
+                        await session.send_client_content(
+                            turns=[types.Content(role="user", parts=memories_context_parts)],
+                            turn_complete=False # CRITICAL: Keep turn open for live input
+                        )
+
+                    # Now, send the initial greeting prompt to kick off the conversation
+                    await session.send_client_content(
+                        turns=[
+                            types.Content(
+                                role="user",
+                                parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")]
+                            )
+                        ],
+                        turn_complete=True
+                    )
+                    print("✅ Initial greeting prompt sent.")
+
+                    # Single loop to handle all incoming messages from Gemini
+                    async for response in session.receive():
                         if not session_alive:
                             break
+                            
+                        if response.server_content:
+                            server_content = response.server_content
+                            
+                            if server_content.interrupted:
+                                try:
+                                    await websocket.send_json({"type": "interrupted"})
+                                except:
+                                    session_alive = False
+                                    break
+                                continue
+                            
+                            if server_content.model_turn:
+                                generated_text = ""
+                                generated_audio_base64 = ""
+                                for part in server_content.model_turn.parts:
+                                    if part.inline_data:
+                                        audio_bytes = part.inline_data.data
+                                        generated_audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                                    if part.text:
+                                        generated_text += part.text
+                                
+                                # Send one combined message to the frontend
+                                if generated_text or generated_audio_base64:
+                                    try:
+                                        await websocket.send_json({
+                                            "type": "audioResponse",
+                                            "description": generated_text,
+                                            "audioBase64": generated_audio_base64
+                                        })
+                                    except:
+                                        session_alive = False
+                                        break
 
-                        server = msg.server_content
-                        if not server:
-                            continue
-
-                        # Handle interruption
-                        if server.interrupted:
-                            await websocket.send_json({"type": "interrupted"})
-                            continue
-
-                        # Send audio/text responses
-                        if server.model_turn:
-                            for part in server.model_turn.parts:
-                                if part.inline_data:
-                                    b64_audio = base64.b64encode(part.inline_data.data).decode("utf-8")
-                                    await websocket.send_json({"type": "audioResponse", "audioBase64": b64_audio})
-                                    log(f"🔊 Sent audio response ({len(part.inline_data.data)} bytes)")
-                                if part.text:
-                                    await websocket.send_json({"type": "textResponse", "text": part.text})
-                                    log(f"📝 Sent text response: {part.text}")
-
+                        if response.setup_complete:
+                            print("✅ Gemini setup complete.")
+                                    
                 except asyncio.CancelledError:
-                    pass
+                    print("➡️ Gemini receive loop cancelled.")
                 except Exception as e:
-                    log(f"❌ Receive loop error: {e}")
+                    print(f"❌ Gemini Receive Loop Error: {e}")
+                    traceback.print_exc()
                     session_alive = False
 
-            receive_task = asyncio.create_task(receive_loop())
-
-            # ---------------- GREETING ----------------
-            try:
-                await session.send_client_content(
-                    turns=[types.Content(
-                        role="user",
-                        parts=[types.Part(text=f"Hello! I am {user_name}")]
-                    )],
-                    turn_complete=True
-                )
-                log("✅ Greeting sent to Gemini Live")
-            except Exception as e:
-                log(f"❌ Failed to send greeting: {e}")
-                session_alive = False
-                await websocket.close(code=1011)
-                return
-
-            # ---------------- AUDIO MONITOR ----------------
-            last_audio = 0
-            AUDIO_TIMEOUT = 1.2  # seconds
-
-            async def audio_monitor():
-                nonlocal last_audio, session_alive
-                while session_alive:
-                    if last_audio > 0 and asyncio.get_event_loop().time() - last_audio > AUDIO_TIMEOUT:
-                        log("🎤 audio_stream_end triggered by silence")
+            # Task 2: Receive all messages from client and forward to Gemini
+            async def forward_to_gemini():
+                nonlocal session_alive
+                audio_chunk_count = 0
+                frame_count = 0
+                try:
+                    while session_alive:
                         try:
-                            await session.send_realtime_input(audio_stream_end=True)
-                        except Exception as e:
-                            log(f"❌ Failed to send audio_stream_end: {e}")
+                            data = await websocket.receive_json()
+                        except WebSocketDisconnect:
+                            print("🔌 Client disconnected, stopping forwarder.")
                             session_alive = False
-                        last_audio = 0
-                    await asyncio.sleep(0.05)
+                            break
 
-            audio_monitor_task = asyncio.create_task(audio_monitor())
+                        if not session_alive: break
 
-            # ---------------- MAIN LOOP ----------------
-            try:
-                while session_alive:
-                    try:
-                        data = await websocket.receive_json()
-                    except WebSocketDisconnect:
-                        log("🔌 Client disconnected")
-                        break
-                    except Exception as e:
-                        log(f"⚠️ Receive error: {e}")
-                        continue
+                        data_type = data.get("type")
+                        try:
+                            if data_type == "audio":
+                                audio_bytes = base64.b64decode(data["audioBase64"])
+                                audio_chunk_count += 1
+                                if audio_chunk_count % 50 == 0:
+                                    print(f"🎤 Audio chunks sent: {audio_chunk_count}")
+                                await session.send_realtime_input(
+                                    media=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
+                                )
+                            elif data_type == "frame":
+                                frame_bytes = base64.b64decode(data["frameBase64"])
+                                frame_count += 1
+                                if frame_count % 10 == 0:
+                                    print(f"📹 Video frames sent: {frame_count}")
+                                await session.send_realtime_input(
+                                    media=types.Blob(data=frame_bytes, mime_type="image/jpeg")
+                                )
+                            elif data_type == "speech_start":
+                                print("🎤 User started speaking, interrupting model.")
+                                await session.send_client_content(turn_complete=False)
+                            elif data_type == "end_of_turn":
+                                print("🤫 User stopped speaking, signaling turn complete.")
+                                await session.send_client_content(turn_complete=True)
+                        except Exception as e:
+                            print(f"⚠️ Failed to send to Gemini: {e}")
+                            if "closed" in str(e).lower() or "1011" in str(e):
+                                print("❌ Fatal session error, stopping forwarder.")
+                                session_alive = False
+                                break
+                except asyncio.CancelledError:
+                    print("➡️ Client forwarder loop cancelled.")
+                except Exception as e:
+                    print(f"❌ Client Forwarder Loop Error: {e}")
+                    traceback.print_exc()
+                    session_alive = False
 
-                    # ---------------- AUDIO ----------------
-                    if data["type"] == "audio":
-                        audio_bytes = base64.b64decode(data["audioBase64"])
-                        await session.send_realtime_input(
-                            audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
-                        )
-                        last_audio = asyncio.get_event_loop().time()
-                        audio_count += 1
-                        log(f"🎤 Audio chunk #{audio_count} received ({len(audio_bytes)} bytes)")
+            # Create and run the concurrent tasks
+            receive_task = asyncio.create_task(receive_from_gemini())
+            forward_task = asyncio.create_task(forward_to_gemini())
 
-                    # ---------------- VIDEO ----------------
-                    elif data["type"] == "frame":
-                        frame_bytes = base64.b64decode(data["frameBase64"])
-                        await session.send_realtime_input(
-                            media=types.Blob(data=frame_bytes, mime_type="image/jpeg")
-                        )
-                        frame_count += 1
-                        log(f"📹 Frame #{frame_count} sent ({len(frame_bytes)} bytes)")
+            # Wait for either task to finish (which indicates an error or disconnect)
+            done, pending = await asyncio.wait(
+                [receive_task, forward_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
 
-            finally:
-                session_alive = False
-                receive_task.cancel()
-                audio_monitor_task.cancel()
-                try:
-                    await receive_task
-                except:
-                    pass
-                try:
-                    await audio_monitor_task
-                except:
-                    pass
-                await websocket.close()
-                log("🧹 Session closed")
+            # Clean up: cancel the other pending task(s)
+            for task in pending:
+                task.cancel()
+            
+            # Wait for the cancellation to propagate
+            await asyncio.gather(*pending, return_exceptions=True)
+            
+            print("🔌 Session cleanup complete")        
 
     except Exception as e:
-        log(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
+        print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
         traceback.print_exc()
+    finally:
         try:
             await websocket.close(code=1011)
         except:
