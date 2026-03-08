@@ -98,45 +98,48 @@ Your task is to act as a live conversational partner.
             async def receive_from_gemini():
                 nonlocal session_alive
                 try:
-                    async for response in session.receive():
-                        if not session_alive:
-                            break
-                            
-                        if response.server_content:
-                            server_content = response.server_content
-                            
-                            if server_content.interrupted:
-                                try:
-                                    await websocket.send_json({"type": "interrupted"})
-                                except:
-                                    session_alive = False
-                                    break
-                                continue
-                            
-                            if server_content.model_turn:
-                                generated_text = ""
-                                generated_audio_base64 = ""
-                                for part in server_content.model_turn.parts:
-                                    if part.inline_data:
-                                        audio_bytes = part.inline_data.data
-                                        generated_audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-                                    if part.text:
-                                        generated_text += part.text
+                    # This outer loop ensures that we keep listening for responses
+                    # even after a turn completes and the inner iterator is exhausted.
+                    while session_alive:
+                        async for response in session.receive():
+                            if not session_alive:
+                                break
                                 
-                                # Send one combined message to the frontend
-                                if generated_text or generated_audio_base64:
+                            if response.server_content:
+                                server_content = response.server_content
+                                
+                                if server_content.interrupted:
                                     try:
-                                        await websocket.send_json({
-                                            "type": "audioResponse",
-                                            "description": generated_text,
-                                            "audioBase64": generated_audio_base64
-                                        })
+                                        await websocket.send_json({"type": "interrupted"})
                                     except:
                                         session_alive = False
                                         break
+                                    continue
+                                
+                                if server_content.model_turn:
+                                    generated_text = ""
+                                    generated_audio_base64 = ""
+                                    for part in server_content.model_turn.parts:
+                                        if part.inline_data:
+                                            audio_bytes = part.inline_data.data
+                                            generated_audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                                        if part.text:
+                                            generated_text += part.text
+                                    
+                                    # Send one combined message to the frontend
+                                    if generated_text or generated_audio_base64:
+                                        try:
+                                            await websocket.send_json({
+                                                "type": "audioResponse",
+                                                "description": generated_text,
+                                                "audioBase64": generated_audio_base64
+                                            })
+                                        except:
+                                            session_alive = False
+                                            break
 
-                        if response.setup_complete:
-                            print("✅ Gemini setup complete.", flush=True)
+                            if response.setup_complete:
+                                print("✅ Gemini setup complete.", flush=True)
                                     
                 except asyncio.CancelledError:
                     print("➡️ Gemini receive loop cancelled.", flush=True)
