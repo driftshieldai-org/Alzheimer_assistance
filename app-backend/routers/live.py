@@ -144,11 +144,13 @@ Instructions:
                     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
                     
                     await session.send(
-                        input={
-                            "mime_type": "image/jpeg",
-                            "data": image_b64
-                        }
-                    )
+                            input={
+                                "inline_data": {
+                                    "mime_type": "image/jpeg",
+                                    "data": image_b64
+                                }
+                            }
+                        )
 
                 except Exception as e:
                     print(f"⚠️ Failed to load image: {e}")
@@ -234,11 +236,13 @@ Instructions:
                     if data["type"] == "frame":
 
                         await session.send(
-                            input={
-                                "mime_type": "image/jpeg",
-                                "data":data["frameBase64"]
-                            }
-                        )
+                                input={
+                                    "inline_data": {
+                                        "mime_type": "image/jpeg",
+                                        "data": data["frameBase64"]
+                                    }
+                                }
+                            )
 
                     # Audio chunk
                     elif data["type"] == "audio":
@@ -251,13 +255,13 @@ Instructions:
                             )
 
                         await session.send(
-                            input={
-                                "mime_type": "audio/pcm;rate=16000",
-                                "data": base64.b64decode(
-                                    data["audioBase64"]
-                                )
-                            }
-                        )
+                                input={
+                                    "inline_data": {
+                                        "mime_type": "audio/pcm;rate=16000",
+                                        "data": data["audioBase64"]
+                                    }
+                                }
+                            )
 
             except WebSocketDisconnect:
 
