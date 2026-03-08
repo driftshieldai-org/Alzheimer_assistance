@@ -125,26 +125,24 @@ Instructions:
             print("🟢 Connected to Gemini Live", flush=True)
             session_alive = True
 
+            # Combine memories and the initial greeting into a single, initial turn.
+            # This is sent once before starting the concurrent send/receive loops.
+            initial_prompt_parts = []
+            if memories_context_parts:
+                initial_prompt_parts.extend(memories_context_parts)
+            initial_prompt_parts.append(
+                types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")
+            )
+            print("✅ Sending initial context and prompt in a single turn.", flush=True)
+            await session.send_client_content(
+                turns=[types.Content(role="user", parts=initial_prompt_parts)],
+                turn_complete=True
+            )
+
             # Task 1: Receive all messages from Gemini and forward to client
             async def receive_from_gemini():
                 nonlocal session_alive
                 try:
-                    # Combine memories and the initial greeting into a single, initial turn.
-                    # This is more robust than sending multiple separate context messages.
-                    initial_prompt_parts = []
-                    if memories_context_parts:
-                        initial_prompt_parts.extend(memories_context_parts)
-                    
-                    initial_prompt_parts.append(
-                        types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")
-                    )
-
-                    print("✅ Sending initial context and prompt in a single turn.", flush=True)
-                    await session.send_client_content(
-                        turns=[types.Content(role="user", parts=initial_prompt_parts)],
-                        turn_complete=True
-                    )
-
                     # Single loop to handle all incoming messages from Gemini
                     async for response in session.receive():
                         if not session_alive:
