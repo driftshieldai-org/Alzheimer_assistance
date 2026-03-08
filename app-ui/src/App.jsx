@@ -23,7 +23,7 @@ class AudioProcessor extends AudioWorkletProcessor {
     this.BUFFER_SIZE = 2048;
     this.silenceThreshold = 0.01;
     this.silentFrames = 0;
-    this.SILENCE_FRAMES_THRESHOLD = 50; // ~1.5 seconds at 16kHz
+    this.SILENCE_FRAMES_THRESHOLD = 120; // ~1.5 seconds at 16kHz
   }
 
   process(inputs, outputs, parameters) {
@@ -256,7 +256,7 @@ export default function MemoryMateApp() {
         }
         
         // When silence is detected, signal end of turn
-        if (type === 'silence_detected') {
+        if (type === 'silence_detected' && hasSpokenRecently) {
           console.log("🔇 Silence detected, signaling end of turn");
           wsRef.current.send(JSON.stringify({ type: "endTurn" }));
         }
