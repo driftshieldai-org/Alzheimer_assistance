@@ -23,7 +23,7 @@ client = genai.Client(
     location=LOCATION
 )
 
-MODEL_ID = "gemini-live-2.5-flash-native-audio"
+MODEL_ID = "gemini-live-2.5-flash-preview-native-audio"
 
 
 @router.websocket("/api/live/ws/live/process-stream")
@@ -47,7 +47,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=1008)
             return
 
-        # ---------------- USER INFO ----------------
+        # ---------------- USER ----------------
         user_name = user_id
 
         try:
@@ -57,7 +57,7 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
 
-        # ---------------- LOAD MEMORIES ----------------
+        # ---------------- MEMORIES ----------------
         memories = []
 
         try:
@@ -71,37 +71,35 @@ async def websocket_endpoint(websocket: WebSocket):
             for doc in photos:
                 data = doc.to_dict()
 
-                description = data.get("description")
-                date = data.get("photoDate")
+                if data.get("description"):
+                    memories.append(
+                        f"{data['description']} (Date: {data.get('photoDate')})"
+                    )
 
-                if description:
-                    memories.append(f"{description} (Date: {date})")
-
-        except Exception as e:
-            print("Memory load error:", e)
+        except:
+            pass
 
         memories_text = "\n".join(memories) if memories else "No stored memories."
 
         # ---------------- SYSTEM PROMPT ----------------
         system_prompt = f"""
-You are MemoryMate, a compassionate AI helping someone with memory loss.
+You are MemoryMate, helping a user with memory loss.
 
-User name: {user_name}
+User: {user_name}
 
 Known memories:
 {memories_text}
 
-Guidelines:
-- Speak slowly
-- Be gentle and supportive
-- Keep responses short
-- If something from the camera matches a memory mention it kindly
+Speak gently and clearly.
+Keep responses short.
 """
 
-        # ---------------- GEMINI CONFIG ----------------
+        # ---------------- CONFIG ----------------
         config = types.LiveConnectConfig(
 
             response_modalities=["AUDIO"],
+
+            media_resolution="low",
 
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
@@ -116,7 +114,7 @@ Guidelines:
             )
         )
 
-        # ---------------- CONNECT GEMINI ----------------
+        # ---------------- GEMINI SESSION ----------------
         async with client.aio.live.connect(
             model=MODEL_ID,
             config=config
@@ -131,8 +129,7 @@ Guidelines:
                         role="user",
                         parts=[types.Part(text=f"Hello I am {user_name}")]
                     )
-                ],
-                turn_complete=True
+                ]
             )
 
             # ---------------- RECEIVE LOOP ----------------
@@ -142,48 +139,47 @@ Guidelines:
 
                 try:
 
-                    async for response in session.receive():
+                    async for msg in session.receive():
 
                         if not session_alive:
                             break
 
-                        if response.server_content:
+                        server = msg.server_content
 
-                            server = response.server_content
+                        if not server:
+                            continue
 
-                            if server.interrupted:
-                                await websocket.send_json(
-                                    {"type": "interrupted"}
-                                )
-                                continue
+                        if server.interrupted:
+                            await websocket.send_json(
+                                {"type": "interrupted"}
+                            )
+                            continue
 
-                            if server.model_turn:
+                        if server.model_turn:
 
-                                for part in server.model_turn.parts:
+                            for part in server.model_turn.parts:
 
-                                    # audio response
-                                    if part.inline_data:
+                                if part.inline_data:
 
-                                        audio = base64.b64encode(
-                                            part.inline_data.data
-                                        ).decode()
+                                    audio = base64.b64encode(
+                                        part.inline_data.data
+                                    ).decode()
 
-                                        await websocket.send_json(
-                                            {
-                                                "type": "audioResponse",
-                                                "audioBase64": audio
-                                            }
-                                        )
+                                    await websocket.send_json(
+                                        {
+                                            "type": "audioResponse",
+                                            "audioBase64": audio
+                                        }
+                                    )
 
-                                    # text response
-                                    if part.text:
+                                if part.text:
 
-                                        await websocket.send_json(
-                                            {
-                                                "type": "textResponse",
-                                                "text": part.text
-                                            }
-                                        )
+                                    await websocket.send_json(
+                                        {
+                                            "type": "textResponse",
+                                            "text": part.text
+                                        }
+                                    )
 
                 except Exception as e:
                     print("Receive loop error:", e)
@@ -191,12 +187,10 @@ Guidelines:
 
             receive_task = asyncio.create_task(receive_loop())
 
-            # ---------------- TURN DETECTION ----------------
-            TURN_TIMEOUT = 1.2
-            last_audio_time = 0
-            user_spoke = False
+            # ---------------- STREAM LOOP ----------------
+            last_audio = 0
+            AUDIO_TIMEOUT = 1.2
 
-            # ---------------- MAIN LOOP ----------------
             try:
 
                 while session_alive:
@@ -205,32 +199,32 @@ Guidelines:
 
                         data = await asyncio.wait_for(
                             websocket.receive_json(),
-                            timeout=TURN_TIMEOUT
+                            timeout=0.5
                         )
 
                     except asyncio.TimeoutError:
 
-                        if user_spoke and (
-                            asyncio.get_event_loop().time() - last_audio_time
-                            > TURN_TIMEOUT
+                        # flush audio if user stopped speaking
+                        if (
+                            last_audio > 0
+                            and asyncio.get_event_loop().time() - last_audio
+                            > AUDIO_TIMEOUT
                         ):
 
-                            print("🧠 Sending turn_complete")
+                            print("🎤 audio_stream_end")
 
-                            await session.send_client_content(
-                                turns=[],
-                                turn_complete=True
+                            await session.send_realtime_input(
+                                audio_stream_end=True
                             )
 
-                            user_spoke = False
+                            last_audio = 0
 
                         continue
 
                     except WebSocketDisconnect:
-                        print("🔌 Client disconnected")
                         break
 
-                    # ---------- AUDIO ----------
+                    # -------- AUDIO --------
                     if data["type"] == "audio":
 
                         audio_bytes = base64.b64decode(
@@ -238,16 +232,15 @@ Guidelines:
                         )
 
                         await session.send_realtime_input(
-                            media=types.Blob(
+                            audio=types.Blob(
                                 data=audio_bytes,
                                 mime_type="audio/pcm;rate=16000"
                             )
                         )
 
-                        last_audio_time = asyncio.get_event_loop().time()
-                        user_spoke = True
+                        last_audio = asyncio.get_event_loop().time()
 
-                    # ---------- CAMERA ----------
+                    # -------- VIDEO --------
                     elif data["type"] == "frame":
 
                         frame_bytes = base64.b64decode(
@@ -261,9 +254,6 @@ Guidelines:
                             )
                         )
 
-            except Exception as e:
-                print("Main loop error:", e)
-
             finally:
 
                 session_alive = False
@@ -274,10 +264,7 @@ Guidelines:
                 except:
                     pass
 
-                print("🧹 Session cleaned")
-
     except Exception:
-        print("🔥 CRITICAL ERROR")
         traceback.print_exc()
 
     finally:
