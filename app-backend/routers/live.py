@@ -2,33 +2,25 @@ import os
 import asyncio
 import base64
 import traceback
-
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 from google.cloud import firestore
+from google.cloud import storage
 import jose.jwt as jwt
 
 router = APIRouter()
 
-os.environ['PYTHONUNBUFFERED'] = '1'
-
-
-def log(msg):
-    print(msg, flush=True)
-
-
 # ---------------- ENV ----------------
-
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 LOCATION = os.environ.get("GCP_REGION", "us-central1")
+BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
 
-MODEL_ID = "gemini-live-2.5-flash-native-audio"
-
 # ---------------- CLIENTS ----------------
-
 db = firestore.Client(project=PROJECT_ID)
+storage_client = storage.Client(project=PROJECT_ID)
+bucket = storage_client.bucket(BUCKET_NAME)
 
 client = genai.Client(
     vertexai=True,
@@ -36,27 +28,26 @@ client = genai.Client(
     location=LOCATION
 )
 
+# ---------------- LOGGER ----------------
+def log(msg):
+    print(msg, flush=True)
 
 # ---------------- WEBSOCKET ----------------
-
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
-
     await websocket.accept()
-    log("🔌 Client connected")
+    log("🔌 Client connected to Live Stream")
 
     session_alive = True
 
     try:
-
         # ---------------- AUTH ----------------
         token = websocket.query_params.get("token")
-
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
-        except Exception:
-            log("❌ Invalid token")
+        except Exception as e:
+            log(f"❌ Token error: {e}")
             await websocket.close(code=1008)
             return
 
@@ -99,6 +90,8 @@ Ask them if they are looking for something else and respond accordingly.
 """
 
         # ---------------- CONFIG ----------------
+        MODEL_ID = "gemini-live-2.5-flash-native-audio"
+
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
@@ -111,22 +104,14 @@ Ask them if they are looking for something else and respond accordingly.
 
         # ---------------- GEMINI SESSION ----------------
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
-
-            log("🟢 Gemini Live connected")
-
-            # -------- Greeting --------
-            await session.send_client_content(
-                turns=[types.Content(role="user", parts=[types.Part(text=f"Hello I am {user_name}")])],
-                turn_complete=True
-            )
+            log("🟢 Connected to Gemini Live")
 
             # ---------------- RECEIVE LOOP ----------------
             async def receive_loop():
                 nonlocal session_alive
                 try:
-                    log("🟢 receive loop started")
+                    log("🟢 Receive loop started")
                     async for msg in session.receive():
-
                         if not session_alive:
                             break
 
@@ -134,21 +119,17 @@ Ask them if they are looking for something else and respond accordingly.
                         if not server:
                             continue
 
-                        # interruption (barge-in)
+                        # Handle interruption
                         if server.interrupted:
                             await websocket.send_json({"type": "interrupted"})
                             continue
 
-                        # model response
+                        # Send audio/text responses
                         if server.model_turn:
                             for part in server.model_turn.parts:
-
-                                # AUDIO
                                 if part.inline_data:
-                                    audio = base64.b64encode(part.inline_data.data).decode()
-                                    await websocket.send_json({"type": "audioResponse", "audioBase64": audio})
-
-                                # TEXT (optional)
+                                    b64_audio = base64.b64encode(part.inline_data.data).decode("utf-8")
+                                    await websocket.send_json({"type": "audioResponse", "audioBase64": b64_audio})
                                 if part.text:
                                     await websocket.send_json({"type": "textResponse", "text": part.text})
 
@@ -160,12 +141,27 @@ Ask them if they are looking for something else and respond accordingly.
 
             receive_task = asyncio.create_task(receive_loop())
 
-            # ---------------- STREAM LOOP ----------------
+            # ---------------- GREETING ----------------
+            try:
+                await session.send_client_content(
+                    turns=[types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"Hello! I am {user_name}")]
+                    )],
+                    turn_complete=True
+                )
+                log("✅ Greeting sent to Gemini Live")
+            except Exception as e:
+                log(f"❌ Failed to send greeting: {e}")
+                session_alive = False
+                await websocket.close(code=1011)
+                return
+
+            # ---------------- AUDIO MONITOR ----------------
             last_audio = 0
             AUDIO_TIMEOUT = 1.2  # seconds
 
             async def audio_monitor():
-                """Send audio_stream_end after silence detected"""
                 nonlocal last_audio, session_alive
                 while session_alive:
                     if last_audio > 0 and asyncio.get_event_loop().time() - last_audio > AUDIO_TIMEOUT:
@@ -175,12 +171,12 @@ Ask them if they are looking for something else and respond accordingly.
                         except Exception as e:
                             log(f"❌ Failed to send audio_stream_end: {e}")
                             session_alive = False
-                            break
                         last_audio = 0
-                    await asyncio.sleep(0.05)  # frequent check
+                    await asyncio.sleep(0.05)
 
             audio_monitor_task = asyncio.create_task(audio_monitor())
 
+            # ---------------- MAIN LOOP ----------------
             try:
                 while session_alive:
                     try:
@@ -192,42 +188,41 @@ Ask them if they are looking for something else and respond accordingly.
                         log(f"⚠️ Receive error: {e}")
                         continue
 
-                    # -------- AUDIO --------
+                    # Handle audio from client
                     if data["type"] == "audio":
-                        log("🟢 audio received")
                         audio_bytes = base64.b64decode(data["audioBase64"])
                         await session.send_realtime_input(
                             audio=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
                         )
-                        last_audio = asyncio.get_event_loop().time()  # update timestamp
+                        last_audio = asyncio.get_event_loop().time()
 
-                    # -------- VIDEO FRAME --------
+                    # Handle video frames from client
                     elif data["type"] == "frame":
-                        log("🟢 frame received")
                         frame_bytes = base64.b64decode(data["frameBase64"])
                         await session.send_realtime_input(
                             media=types.Blob(data=frame_bytes, mime_type="image/jpeg")
                         )
+                        log("📹 Frame sent to Gemini Live")
 
             finally:
                 session_alive = False
-                audio_monitor_task.cancel()
                 receive_task.cancel()
-                try:
-                    await audio_monitor_task
-                except:
-                    pass
+                audio_monitor_task.cancel()
                 try:
                     await receive_task
                 except:
                     pass
+                try:
+                    await audio_monitor_task
+                except:
+                    pass
+                await websocket.close()
                 log("🧹 Session closed")
 
-    except Exception:
+    except Exception as e:
+        log(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
         traceback.print_exc()
-
-    finally:
         try:
-            await websocket.close()
+            await websocket.close(code=1011)
         except:
             pass
