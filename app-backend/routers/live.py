@@ -224,8 +224,11 @@ Instructions:
                             audio_bytes = base64.b64decode(data["audioBase64"])
                             audio_chunk_count += 1
                             
-                            if audio_chunk_count % 100 == 0:
-                                log(f"🎤 Audio: {audio_chunk_count} chunks")
+                            if audio_chunk_count % 50 == 0:
+                                import struct
+                                samples = struct.unpack(f'<{len(audio_bytes)//2}h', audio_bytes)
+                                max_val = max(abs(s) for s in samples)
+                                log(f"🎤 Audio: {audio_chunk_count} chunks, max level: {max_val}/32768")
                             
                             # Send raw audio bytes directly
                             await session.send_realtime_input(
