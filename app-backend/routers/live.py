@@ -41,7 +41,6 @@ async def websocket_endpoint(websocket: WebSocket):
         token = websocket.query_params.get("token")
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            # Fallback to "Unknown" if userId is missing from payload
             user_id = payload.get("userId", "Unknown") 
             print(f"✅ Token validated for user: {user_id}", flush=True)
         except Exception as e:
@@ -58,6 +57,41 @@ async def websocket_endpoint(websocket: WebSocket):
                 
         print(f"✅ Loaded user info for: {user_name}", flush=True)
 
+        # 3️⃣ Define the Tool for fetching past history
+        def check_past_history(query: str) -> str:
+            """Reads the existing images from the user's bucket folder to check for the past history and gets details from Firestore.
+            
+            Args:
+                query: A description of the object or memory to look for in the past history.
+            """
+            print(f"🛠️ [TOOL] check_past_history called by Gemini with query: '{query}'", flush=True)
+            try:
+                # Read existing images from bucket for the user
+                prefix = f"photos/{user_id}/"
+                blobs = list(bucket.list_blobs(prefix=prefix))
+                
+                if not blobs:
+                    return "No existing images found in the bucket for this user."
+                
+                image_names = [blob.name for blob in blobs]
+                
+                # Get details from Firestore (Assuming history is stored in a 'history' subcollection)
+                history_ref = db.collection("users").document(user_id).collection("photos")
+                docs = history_ref.stream()
+                
+                details = []
+                for doc in docs:
+                    details.append(doc.to_dict())
+                
+                if not details:
+                    return f"Found images {image_names} in bucket, but no corresponding details found in Firestore."
+                
+                return f"Found images in bucket: {image_names}. Firestore history details: {details}"
+                
+            except Exception as e:
+                print(f"❌ [TOOL ERROR] {e}", flush=True)
+                return f"Error accessing past history: {user_name}"
+
         # 4️⃣ System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
 
@@ -68,8 +102,9 @@ Your task is to act as a live conversational partner.
 1. Greet the user warmly by name at the beginning of the conversation.
 2. After the greeting, wait for the user to speak or ask a question.
 3. When the user asks a question, use the live video and audio stream to understand their query and environment.
-4. Provide helpful, concise, and compassionate answers based on what you see and hear in real-time.
-5. Speak clearly and with a calm, reassuring tone.
+4. You have access to the `check_past_history` tool. Use it to read the existing images from the bucket for the user to check for past history. If any image matches with the current stream, get the detail from Firestore for that image and revert to the user. If no, then go as usual.
+5. Provide helpful, concise, and compassionate answers based on what you see and hear in real-time.
+6. Speak clearly and with a calm, reassuring tone.
 """
 
         # 5️⃣ Gemini Live Config
@@ -86,9 +121,11 @@ Your task is to act as a live conversational partner.
             ),
             system_instruction=types.Content(
                 parts=[types.Part(text=system_instruction)]
-            )
+            ),
+            # Pass the function directly - the SDK handles execution automatically!
+            tools=[check_past_history]
         )
-        print(f"✅ Configured for model: {MODEL_ID}", flush=True)
+        print(f"✅ Configured for model: {MODEL_ID} with tools loaded.", flush=True)
 
         # 6️⃣ Connect to Gemini Live
         print("⏳ Connecting to Gemini Live...", flush=True)
