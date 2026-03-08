@@ -1,5 +1,4 @@
 import os
-import sys
 import asyncio
 import base64
 import traceback
@@ -11,20 +10,18 @@ from google.cloud import firestore
 from google.cloud import storage
 import jose.jwt as jwt
 
-router = APIRouter()
-
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 def log(msg):
     print(msg, flush=True)
     
+router = APIRouter()
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
 LOCATION = os.environ.get("GCP_REGION", "us-central1")
 BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
 
-# Google clients
 db = firestore.Client(project=PROJECT_ID)
 storage_client = storage.Client(project=PROJECT_ID)
 bucket = storage_client.bucket(BUCKET_NAME)
@@ -48,60 +45,54 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
 
-        # ---------------------------
-        # 1️⃣ AUTHENTICATION
-        # ---------------------------
-
+        # ---------------- AUTH ----------------
         token = websocket.query_params.get("token")
 
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
-        except Exception as e:
-            log("❌ Token invalid:", e)
+        except Exception:
+            log("❌ Invalid token")
             await websocket.close(code=1008)
             return
 
-        # ---------------------------
-        # 2️⃣ LOAD USER
-        # ---------------------------
-
+        # ---------------- LOAD USER ----------------
         user_name = user_id
 
-        user_doc = db.collection("users").document(user_id).get()
-        if user_doc.exists:
-            user_name = user_doc.to_dict().get("name", user_id)
+        try:
+            user_doc = db.collection("users").document(user_id).get()
+            if user_doc.exists:
+                user_name = user_doc.to_dict().get("name", user_id)
+        except Exception:
+            pass
 
-        # ---------------------------
-        # 3️⃣ LOAD MEMORY CONTEXT
-        # ---------------------------
-
+        # ---------------- LOAD MEMORIES ----------------
         memories = []
 
-        photos = (
-            db.collection("users")
-            .document(user_id)
-            .collection("photos")
-            .stream()
-        )
+        try:
+            photos = (
+                db.collection("users")
+                .document(user_id)
+                .collection("photos")
+                .stream()
+            )
 
-        for doc in photos:
-            data = doc.to_dict()
+            for doc in photos:
+                data = doc.to_dict()
+                description = data.get("description")
+                date = data.get("photoDate")
 
-            description = data.get("description")
-            date = data.get("photoDate")
+                if description:
+                    memories.append(f"{description} (Date: {date})")
 
-            if description:
-                memories.append(f"{description} (Date: {date})")
+        except Exception as e:
+            print("Memory load error:", e)
 
-        memories_text = "\n".join(memories) if memories else "No stored memories yet."
+        memories_text = "\n".join(memories) if memories else "No memories stored."
 
-        # ---------------------------
-        # 4️⃣ SYSTEM PROMPT
-        # ---------------------------
-
+        # ---------------- SYSTEM PROMPT ----------------
         system_prompt = f"""
-You are MemoryMate, a compassionate AI helping people with memory loss.
+You are MemoryMate, a compassionate assistant helping people with memory loss.
 
 User name: {user_name}
 
@@ -109,16 +100,13 @@ Known memories:
 {memories_text}
 
 Rules:
-- Speak slowly and kindly
+- Speak slowly and clearly
 - Keep responses short
-- Describe what you see in the camera
-- If something matches a stored memory remind the user
+- If the camera shows something familiar mention it
+- If something matches a memory gently remind the user
 """
 
-        # ---------------------------
-        # 5️⃣ GEMINI CONFIG
-        # ---------------------------
-
+        # ---------------- GEMINI CONFIG ----------------
         config = types.LiveConnectConfig(
 
             response_modalities=["AUDIO"],
@@ -136,10 +124,7 @@ Rules:
             )
         )
 
-        # ---------------------------
-        # 6️⃣ CONNECT GEMINI LIVE
-        # ---------------------------
-
+        # ---------------- GEMINI SESSION ----------------
         async with client.aio.live.connect(
             model=MODEL_ID,
             config=config
@@ -147,10 +132,7 @@ Rules:
 
             log("🟢 Gemini Live connected")
 
-            # ---------------------------
-            # SEND INITIAL GREETING
-            # ---------------------------
-
+            # initial greeting
             await session.send_client_content(
                 turns=[
                     types.Content(
@@ -161,10 +143,7 @@ Rules:
                 turn_complete=True
             )
 
-            # ---------------------------
-            # RECEIVE LOOP
-            # ---------------------------
-
+            # ---------------- RECEIVE LOOP ----------------
             async def receive_loop():
 
                 nonlocal session_alive
@@ -181,7 +160,9 @@ Rules:
                             server = response.server_content
 
                             if server.interrupted:
-                                await websocket.send_json({"type": "interrupted"})
+                                await websocket.send_json(
+                                    {"type": "interrupted"}
+                                )
                                 continue
 
                             if server.model_turn:
@@ -197,7 +178,7 @@ Rules:
                                         await websocket.send_json(
                                             {
                                                 "type": "audioResponse",
-                                                "audioBase64": audio,
+                                                "audioBase64": audio
                                             }
                                         )
 
@@ -206,67 +187,52 @@ Rules:
                                         await websocket.send_json(
                                             {
                                                 "type": "textResponse",
-                                                "text": part.text,
+                                                "text": part.text
                                             }
                                         )
 
                 except Exception as e:
-                    log("❌ Receive loop error:", e)
+                    print("Receive loop error:", e)
                     session_alive = False
 
             receive_task = asyncio.create_task(receive_loop())
 
-            # ---------------------------
-            # AUDIO TURN DETECTION
-            # ---------------------------
-
-            SILENCE_TIMEOUT = 1.2
+            # ---------------- TURN DETECTION ----------------
             last_audio_time = asyncio.get_event_loop().time()
+            TURN_TIMEOUT = 1.0
 
-            # ---------------------------
-            # MAIN LOOP
-            # ---------------------------
-
+            # ---------------- MAIN LOOP ----------------
             try:
 
                 while session_alive:
 
-                    # Detect silence → complete turn
-                    now = asyncio.get_event_loop().time()
+                    try:
 
-                    if now - last_audio_time > SILENCE_TIMEOUT:
+                        data = await asyncio.wait_for(
+                            websocket.receive_json(),
+                            timeout=TURN_TIMEOUT
+                        )
 
-                        try:
+                    except asyncio.TimeoutError:
+
+                        if asyncio.get_event_loop().time() - last_audio_time > TURN_TIMEOUT:
+
+                            log("🧠 Sending turn_complete")
 
                             await session.send_client_content(
                                 turns=[],
                                 turn_complete=True
                             )
 
-                            last_audio_time = now + 999
-                            log("🧠 Turn completed")
+                            last_audio_time = asyncio.get_event_loop().time() + 100
 
-                        except Exception as e:
-                            log("Turn complete failed:", e)
-
-                    try:
-
-                        data = await asyncio.wait_for(
-                            websocket.receive_json(),
-                            timeout=1.0
-                        )
-
-                    except asyncio.TimeoutError:
                         continue
 
                     except WebSocketDisconnect:
                         log("🔌 Client disconnected")
                         break
 
-                    # ---------------------------
-                    # AUDIO INPUT
-                    # ---------------------------
-
+                    # ------------ AUDIO INPUT ------------
                     if data["type"] == "audio":
 
                         audio_bytes = base64.b64decode(data["audioBase64"])
@@ -280,10 +246,7 @@ Rules:
                             )
                         )
 
-                    # ---------------------------
-                    # VIDEO INPUT
-                    # ---------------------------
-
+                    # ------------ CAMERA FRAME ------------
                     elif data["type"] == "frame":
 
                         frame_bytes = base64.b64decode(data["frameBase64"])
@@ -296,7 +259,7 @@ Rules:
                         )
 
             except Exception as e:
-                log("❌ Main loop error:", e)
+                print("Main loop error:", e)
 
             finally:
 
@@ -311,8 +274,7 @@ Rules:
 
                 log("🧹 Session cleaned")
 
-    except Exception as e:
-
+    except Exception:
         log("🔥 CRITICAL ERROR")
         traceback.print_exc()
 
