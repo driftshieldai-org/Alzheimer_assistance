@@ -232,10 +232,10 @@ Instructions:
 
                     # Video frame
                     if data["type"] == "frame":
-                        frame_bytes = base64.b64decode(data["frameBase64"])
+                        image_b64 = base64.b64encode(base64.b64decode(data["frameBase64"])).decode("utf-8")
                         await session.send(
-                                input=frame_bytes
-                            )
+                            input={"mime_type": "image/jpeg", "data": image_b64}
+                        )
 
                     # Audio chunk
                     elif data["type"] == "audio":
@@ -247,9 +247,8 @@ Instructions:
                                 f"🎤 Audio Active: {debug_audio_counter} chunks"
                             )
                         audio_bytes = base64.b64decode(data["audioBase64"])
-                        
                         await session.send(
-                            input=audio_bytes
+                            input={"mime_type": "audio/wav", "data": base64.b64encode(audio_bytes).decode("utf-8")}
                         )
 
             except WebSocketDisconnect:
