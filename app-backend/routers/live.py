@@ -41,7 +41,8 @@ async def websocket_endpoint(websocket: WebSocket):
         token = websocket.query_params.get("token")
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-            user_id = payload.get("userId")
+            # Fallback to "Unknown" if userId is missing from payload
+            user_id = payload.get("userId", "Unknown") 
             print(f"✅ Token validated for user: {user_id}", flush=True)
         except Exception as e:
             print(f"❌ Token Error: {e}", flush=True)
@@ -50,10 +51,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
         # 2️⃣ Load User Info
         user_name = user_id
-        user_doc = db.collection("users").document(user_id).get()
-        if user_doc.exists:
-            user_name = user_doc.to_dict().get("name", user_id)
-        print(f"✅ Loaded user info for: {user_id}", flush=True)
+        if user_id != "Unknown":
+            user_doc = db.collection("users").document(user_id).get()
+            if user_doc.exists:
+                user_name = user_doc.to_dict().get("name", user_id)
+                
+        print(f"✅ Loaded user info for: {user_name}", flush=True)
 
         # 4️⃣ System Instruction
         system_instruction = f"""You are MemoryMate, a caring AI assistant helping people with memory.
@@ -70,7 +73,7 @@ Your task is to act as a live conversational partner.
 """
 
         # 5️⃣ Gemini Live Config
-        MODEL_ID = "gemini-live-2.5-flash-native-audio"  # Verified model ID for real-time live APIs
+        MODEL_ID = "gemini-live-2.5-flash-native-audio"  
         
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -97,49 +100,48 @@ Your task is to act as a live conversational partner.
             async def receive_from_gemini():
                 nonlocal session_alive
                 try:
-                    # Removed redundant 'while session_alive:' 
-                    # session.receive() operates over the lifetime of the connection.
-                    async for response in session.receive():
-                        if not session_alive:
-                            break
-                        
-                        if response.server_content:
-                            server_content = response.server_content
+                    while session_alive:
+                        async for response in session.receive():
+                            if not session_alive:
+                                break
                             
-                            if server_content.interrupted:
-                                try:
-                                    await websocket.send_json({"type": "interrupted"})
-                                except Exception as e:
-                                    print(f"⚠️ Failed to send interrupted signal: {e}", flush=True)
-                                    session_alive = False
-                                    break
-                                continue
-                            
-                            if server_content.model_turn:
-                                generated_text = ""
-                                generated_audio_base64 = ""
-                                for part in server_content.model_turn.parts:
-                                    if part.inline_data:
-                                        audio_bytes = part.inline_data.data
-                                        generated_audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-                                    if part.text:
-                                        generated_text += part.text
+                            if response.server_content:
+                                server_content = response.server_content
                                 
-                                # Send one combined message to the frontend
-                                if generated_text or generated_audio_base64:
+                                if server_content.interrupted:
                                     try:
-                                        await websocket.send_json({
-                                            "type": "audioResponse",
-                                            "description": generated_text,
-                                            "audioBase64": generated_audio_base64
-                                        })
+                                        await websocket.send_json({"type": "interrupted"})
                                     except Exception as e:
-                                        print(f"⚠️ Client disconnected during send: {e}", flush=True)
+                                        print(f"⚠️ Failed to send interrupted signal: {e}", flush=True)
                                         session_alive = False
                                         break
+                                    continue
+                                
+                                if server_content.model_turn:
+                                    generated_text = ""
+                                    generated_audio_base64 = ""
+                                    for part in server_content.model_turn.parts:
+                                        if part.inline_data:
+                                            audio_bytes = part.inline_data.data
+                                            generated_audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                                        if part.text:
+                                            generated_text += part.text
+                                    
+                                    # Send one combined message to the frontend
+                                    if generated_text or generated_audio_base64:
+                                        try:
+                                            await websocket.send_json({
+                                                "type": "audioResponse",
+                                                "description": generated_text,
+                                                "audioBase64": generated_audio_base64
+                                            })
+                                        except Exception as e:
+                                            print(f"⚠️ Client disconnected during send: {e}", flush=True)
+                                            session_alive = False
+                                            break
 
-                        if response.setup_complete:
-                            print("✅ Gemini setup complete.", flush=True)
+                            if response.setup_complete:
+                                print("✅ Gemini setup complete.", flush=True)
                                 
                 except asyncio.CancelledError:
                     print("➡️ Gemini receive loop cancelled.", flush=True)
@@ -158,7 +160,7 @@ Your task is to act as a live conversational partner.
                     initial_prompt_parts = [
                         types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")
                     ]
-                    print("✅ Sending initial greeting prompt.", flush=True)
+                    print(f"✅ Sending initial greeting prompt for user: {user_name}", flush=True)
                     await session.send_client_content(
                         turns=[types.Content(role="user", parts=initial_prompt_parts)],
                         turn_complete=True
@@ -177,7 +179,7 @@ Your task is to act as a live conversational partner.
 
                         data_type = data.get("type")
                         try:
-                            if data_type == "audio":
+                            if data_type == "audio" and "audioBase64" in data:
                                 audio_bytes = base64.b64decode(data["audioBase64"])
                                 audio_chunk_count += 1
                                 if audio_chunk_count % 50 == 0:
@@ -185,7 +187,7 @@ Your task is to act as a live conversational partner.
                                 await session.send_realtime_input(
                                     media=types.Blob(data=audio_bytes, mime_type="audio/pcm;rate=16000")
                                 )
-                            elif data_type == "frame":
+                            elif data_type == "frame" and "frameBase64" in data:
                                 frame_bytes = base64.b64decode(data["frameBase64"])
                                 frame_count += 1
                                 if frame_count % 10 == 0:
@@ -236,7 +238,6 @@ Your task is to act as a live conversational partner.
         traceback.print_exc()
     finally:
         try:
-            # Replaced 1011 (internal server error) with 1000 (normal disconnect status)
             await websocket.close(code=1000)
         except:
             pass
