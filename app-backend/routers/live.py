@@ -88,13 +88,18 @@ async def websocket_endpoint(websocket: WebSocket):
             ))
             
             # Send the images + greeting as the very first turn!
-            initial_content = types.Content(
-                  role="user", 
-                  parts=initial_prompt_parts
-              )
+            #initial_content = types.Content(
+            #      role="user", 
+            #      parts=initial_prompt_parts
+            #  )
               
             # Send the Content object!
-            await session.send(input=initial_content, end_of_turn=True)
+            # await session.send(input=initial_content, end_of_turn=True)
+            for i, part in enumerate(initial_prompt_parts):
+                await session.send(
+                    input=part,
+                    end_of_turn=(i == len(initial_prompt_parts) - 1)
+                )
             print("✅ Ready. Mode: LISTENING")
 
             # TASK: Receive from Gemini
