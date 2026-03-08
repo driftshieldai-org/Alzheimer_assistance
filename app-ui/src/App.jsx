@@ -12,6 +12,7 @@ class AudioProcessor extends AudioWorkletProcessor {
     super();
     this.buffer = [];
     this.BUFFER_SIZE = 1600; // 100ms at 16kHz
+    this.gain = 3.0; // Amplify audio
   }
 
   process(inputs, outputs, parameters) {
@@ -32,7 +33,8 @@ class AudioProcessor extends AudioWorkletProcessor {
       const view = new DataView(pcmData);
       
       for (let i = 0; i < chunk.length; i++) {
-        const sample = Math.max(-1, Math.min(1, chunk[i]));
+        let sample = chunk[i] * this.gain;
+        sample = Math.max(-1, Math.min(1, sample));
         const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
         view.setInt16(i * 2, int16, true);
       }
