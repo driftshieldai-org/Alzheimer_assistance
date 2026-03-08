@@ -98,63 +98,59 @@ export default function MemoryMateApp() {
 
   useEffect(() => () => stopLive(), [currentScreen]);
 
-  const startSpeechRecognition = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setLiveError("Speech recognition not supported. Try Chrome.");
-      return;
+const startSpeechRecognition = () => {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    setLiveError("Speech recognition not supported. Use Chrome.");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    setIsListening(true);
+    console.log("🎤 Listening started");
+  };
+
+  recognition.onresult = (event) => {
+    let final = '';
+    let interim = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript;
+      if (event.results[i].isFinal) {
+        final += t;
+      } else {
+        interim += t;
+      }
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    setTranscript(interim || final);
 
-    recognition.onstart = () => {
-      setIsListening(true);
-      console.log("🎤 Listening...");
-    };
-
-    recognition.onresult = (event) => {
-      let interim = '';
-      let final = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          final += t;
-        } else {
-          interim += t;
-        }
-      }
-
-      setTranscript(interim || final);
-
-      if (final && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        console.log("💬 Sending:", final);
-        wsRef.current.send(JSON.stringify({ type: "text", text: final }));
-        setTranscript('');
-      }
-    };
-
-    recognition.onerror = (e) => {
-      console.error("Speech error:", e.error);
-      if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        setLiveError(`Speech error: ${e.error}`);
-      }
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-      // Restart if still active
-      if (isLiveActive && recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch {}
-      }
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
+    if (final && wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("💬 Sending:", final);
+      wsRef.current.send(JSON.stringify({ type: "text", text: final }));
+      setTranscript('');
+    }
   };
+
+  recognition.onerror = (e) => {
+    console.error("Speech error:", e.error);
+  };
+
+  recognition.onend = () => {
+    setIsListening(false);
+    if (isLiveActive) {
+      try { recognition.start(); } catch {}
+    }
+  };
+
+  recognitionRef.current = recognition;
+  recognition.start();
+};
 
   const sendFrame = () => {
     if (!webcamRefLive.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
