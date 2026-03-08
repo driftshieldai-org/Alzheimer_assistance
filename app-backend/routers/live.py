@@ -102,7 +102,7 @@ Instructions:
 
         # 5️⃣ Gemini Live Config
         # Using a more common and available model. The previous model might not be available in your project/region.
-        MODEL_ID = "gemini-1.5-flash-latest"
+        MODEL_ID = "gemini-live-2.5-flash-native-audio"
         
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
