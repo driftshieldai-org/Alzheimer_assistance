@@ -1,50 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Webcam from 'react-webcam'; 
-import { 
-  Brain, ArrowLeft, Camera, Video, CheckCircle, Mic, Upload, 
-  CameraIcon, StopCircle, ImageIcon
-} from 'lucide-react';
-
-const AUDIO_WORKLET_CODE = `
-class AudioProcessor extends AudioWorkletProcessor {
-  constructor() {
-    super();
-    this.buffer = [];
-    this.BUFFER_SIZE = 1600;
-    this.gain = 5.0;
-  }
-
-  process(inputs, outputs, parameters) {
-    const input = inputs[0];
-    if (!input || !input[0]) return true;
-    
-    const channelData = input[0];
-    
-    for (let i = 0; i < channelData.length; i++) {
-      this.buffer.push(channelData[i]);
-    }
-
-    while (this.buffer.length >= this.BUFFER_SIZE) {
-      const chunk = this.buffer.splice(0, this.BUFFER_SIZE);
-      
-      const pcmData = new ArrayBuffer(chunk.length * 2);
-      const view = new DataView(pcmData);
-      
-      for (let i = 0; i < chunk.length; i++) {
-        let sample = chunk[i] * this.gain;
-        sample = Math.max(-1, Math.min(1, sample));
-        const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-        view.setInt16(i * 2, int16, true);
-      }
-      
-      this.port.postMessage({ type: 'audio', buffer: pcmData }, [pcmData]);
-    }
-    
-    return true;
-  }
-}
-registerProcessor('audio-processor', AudioProcessor);
-`;
+import { Brain, ArrowLeft, Camera, Video, CheckCircle, Mic, Upload, CameraIcon, StopCircle, ImageIcon, Eye } from 'lucide-react';
 
 let playbackContext = null;
 let nextPlayTime = 0;
@@ -124,13 +80,12 @@ export default function MemoryMateApp() {
   // Live
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [liveError, setLiveError] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
   const webcamRefLive = useRef(null);
   const wsRef = useRef(null);
   const frameIntervalRef = useRef(null);
-  const audioCtxRef = useRef(null);
-  const micStreamRef = useRef(null);
-  const workletRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   const BACKEND = "https://alzheimer-backend-902738993392.us-central1.run.app";
 
@@ -143,44 +98,62 @@ export default function MemoryMateApp() {
 
   useEffect(() => () => stopLive(), [currentScreen]);
 
-  const startMic = async () => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, sampleRate: 16000, echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-      });
-      micStreamRef.current = stream;
-
-      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      audioCtxRef.current = ctx;
-      if (ctx.state === 'suspended') await ctx.resume();
-
-      const blob = new Blob([AUDIO_WORKLET_CODE], { type: "application/javascript" });
-      const url = URL.createObjectURL(blob);
-      await ctx.audioWorklet.addModule(url);
-      URL.revokeObjectURL(url);
-
-      const worklet = new AudioWorkletNode(ctx, 'audio-processor');
-      workletRef.current = worklet;
-
-      worklet.port.onmessage = (e) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        if (e.data.type === 'audio' && e.data.buffer) {
-          const bytes = new Uint8Array(e.data.buffer);
-          let bin = '';
-          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-          wsRef.current.send(JSON.stringify({ type: "audio", audioBase64: window.btoa(bin) }));
-        }
-      };
-
-      ctx.createMediaStreamSource(stream).connect(worklet);
-      setIsStreaming(true);
-      console.log("🎤 Mic started");
-    } catch (e) {
-      console.error("Mic error:", e);
-      setLiveError("Microphone failed: " + e.message);
+  const startSpeechRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setLiveError("Speech recognition not supported. Try Chrome.");
+      return;
     }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      console.log("🎤 Listening...");
+    };
+
+    recognition.onresult = (event) => {
+      let interim = '';
+      let final = '';
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += t;
+        } else {
+          interim += t;
+        }
+      }
+
+      setTranscript(interim || final);
+
+      if (final && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log("💬 Sending:", final);
+        wsRef.current.send(JSON.stringify({ type: "text", text: final }));
+        setTranscript('');
+      }
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech error:", e.error);
+      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        setLiveError(`Speech error: ${e.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      // Restart if still active
+      if (isLiveActive && recognitionRef.current) {
+        try { recognitionRef.current.start(); } catch {}
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
   };
 
   const sendFrame = () => {
@@ -188,7 +161,14 @@ export default function MemoryMateApp() {
     try {
       const img = webcamRefLive.current.getScreenshot({ width: 640, height: 480 });
       if (img) wsRef.current.send(JSON.stringify({ type: "frame", frameBase64: img.split(',')[1] }));
-    } catch (e) {}
+    } catch {}
+  };
+
+  const requestDescribe = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      sendFrame();
+      wsRef.current.send(JSON.stringify({ type: "describe" }));
+    }
   };
 
   const startLive = async () => {
@@ -200,14 +180,15 @@ export default function MemoryMateApp() {
 
     setIsLiveActive(true);
     setLiveError('');
+    setTranscript('');
     clearAudioQueue();
 
     wsRef.current = new WebSocket(`wss://${new URL(BACKEND).host}/api/live/ws/live/process-stream?token=${token}`);
 
     wsRef.current.onopen = () => {
       console.log('WS connected');
-      startMic();
-      frameIntervalRef.current = setInterval(sendFrame, 2000);
+      startSpeechRecognition();
+      frameIntervalRef.current = setInterval(sendFrame, 3000);
     };
 
     wsRef.current.onmessage = (e) => {
@@ -219,18 +200,17 @@ export default function MemoryMateApp() {
     };
 
     wsRef.current.onerror = () => { setLiveError("Connection error."); stopLive(); };
-    wsRef.current.onclose = () => stopLive();
+    wsRef.current.onclose = () => { if (isLiveActive) stopLive(); };
   };
 
   const stopLive = () => {
     if (frameIntervalRef.current) { clearInterval(frameIntervalRef.current); frameIntervalRef.current = null; }
-    if (workletRef.current) { workletRef.current.disconnect(); workletRef.current = null; }
-    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
-    if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+    if (recognitionRef.current) { recognitionRef.current.stop(); recognitionRef.current = null; }
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null; }
     clearAudioQueue();
     setIsLiveActive(false);
-    setIsStreaming(false);
+    setIsListening(false);
+    setTranscript('');
   };
 
   // Auth handlers
@@ -420,15 +400,22 @@ export default function MemoryMateApp() {
           </div>
 
           <div className="w-full max-w-3xl p-6 bg-blue-50 rounded-3xl border-4 border-blue-200 mb-6">
-            <div className="flex items-center justify-center space-x-4">
-              <Mic size={48} className={isStreaming ? 'text-green-600 animate-pulse' : 'text-gray-400'} />
-              <span className="text-2xl font-bold text-blue-900">{isStreaming ? "Listening... Speak naturally!" : "Starting..."}</span>
+            <div className="flex items-center justify-center space-x-4 mb-4">
+              <Mic size={48} className={isListening ? 'text-green-600 animate-pulse' : 'text-gray-400'} />
+              <span className="text-2xl font-bold text-blue-900">{isListening ? "Listening... Speak now!" : "Starting..."}</span>
             </div>
+            {transcript && <p className="text-xl text-blue-700 text-center italic">"{transcript}"</p>}
           </div>
 
-          <button onClick={stopLive} className="w-full max-w-3xl bg-red-700 text-white text-4xl font-extrabold py-8 rounded-3xl border-8 border-red-900 flex items-center justify-center">
-            <StopCircle size={48} className="mr-4" /> Stop
-          </button>
+          <div className="w-full max-w-3xl space-y-4">
+            <button onClick={requestDescribe} className="w-full bg-blue-600 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center">
+              <Eye size={32} className="mr-4" /> What do you see?
+            </button>
+            
+            <button onClick={stopLive} className="w-full bg-red-700 text-white text-4xl font-extrabold py-8 rounded-3xl border-8 border-red-900 flex items-center justify-center">
+              <StopCircle size={48} className="mr-4" /> Stop
+            </button>
+          </div>
         </>
       ) : (
         <div className="w-full max-w-3xl space-y-8">
