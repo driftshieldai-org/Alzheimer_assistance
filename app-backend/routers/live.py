@@ -161,7 +161,7 @@ ask them if they are looking for something else and respond accrodingly.
                 nonlocal session_alive
 
                 try:
-                     log("🟢 receive loop")
+                    log("🟢 receive loop")
                     async for msg in session.receive():
 
                         if not session_alive:
