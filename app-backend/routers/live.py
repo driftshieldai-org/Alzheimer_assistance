@@ -145,10 +145,8 @@ Instructions:
                     
                     await session.send(
                             input={
-                                "inline_data": {
                                     "mime_type": "image/jpeg",
                                     "data": image_b64
-                                }
                             }
                         )
 
@@ -234,14 +232,9 @@ Instructions:
 
                     # Video frame
                     if data["type"] == "frame":
-
+                        frame_bytes = base64.b64decode(data["frameBase64"])
                         await session.send(
-                                input={
-                                    "inline_data": {
-                                        "mime_type": "image/jpeg",
-                                        "data": data["frameBase64"]
-                                    }
-                                }
+                                input=frame_bytes
                             )
 
                     # Audio chunk
@@ -253,15 +246,11 @@ Instructions:
                             print(
                                 f"🎤 Audio Active: {debug_audio_counter} chunks"
                             )
-
+                        audio_bytes = base64.b64decode(data["audioBase64"])
+                        
                         await session.send(
-                                input={
-                                    "inline_data": {
-                                        "mime_type": "audio/pcm;rate=16000",
-                                        "data": data["audioBase64"]
-                                    }
-                                }
-                            )
+                            input=audio_bytes
+                        )
 
             except WebSocketDisconnect:
 
