@@ -77,7 +77,7 @@ Instructions:
 """
 
         # 4️⃣ Gemini Live Config
-        MODEL_ID = "gemini-2.5-flash"  
+        MODEL_ID = "gemini-live-2.5-flash-native-audio"  
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
