@@ -12,6 +12,12 @@ from google.cloud import storage
 import jose.jwt as jwt
 from PIL import Image
 
+os.environ['PYTHONUNBUFFERED'] = '1'
+
+def log(message):
+    print(message, flush=True)
+    sys.stdout.flush()
+    
 router = APIRouter()
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
@@ -33,7 +39,7 @@ client = genai.Client(
 @router.websocket("/api/live/ws/live/process-stream")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("🔌 Client connected to Live Stream")
+    log("🔌 Client connected to Live Stream")
 
     session_alive = True
     
@@ -44,7 +50,7 @@ async def websocket_endpoint(websocket: WebSocket):
             payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
             user_id = payload.get("userId")
         except Exception as e:
-            print(f"❌ Token Error: {e}")
+            log(f"❌ Token Error: {e}")
             await websocket.close(code=1008)
             return
 
@@ -99,7 +105,7 @@ Instructions:
         )
 
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
-            print("🟢 Connected to Gemini Live")
+            log("🟢 Connected to Gemini Live")
 
             # Receive loop
             async def receive_loop():
@@ -110,14 +116,14 @@ Instructions:
                             break
                         
                         if response.setup_complete:
-                            print("✅ Setup complete")
+                            log("✅ Setup complete")
                             continue
                             
                         if response.server_content:
                             server_content = response.server_content
                             
                             if server_content.interrupted:
-                                print("🔇 Interrupted")
+                                log("🔇 Interrupted")
                                 await websocket.send_json({"type": "interrupted"})
                                 continue
                             
@@ -126,25 +132,25 @@ Instructions:
                                     if part.inline_data:
                                         audio_bytes = part.inline_data.data
                                         b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
-                                        print(f"🔊 Audio response: {len(audio_bytes)} bytes")
+                                        log(f"🔊 Audio response: {len(audio_bytes)} bytes")
                                         await websocket.send_json({
                                             "type": "audioResponse",
                                             "audioBase64": b64_audio
                                         })
                                     if part.text:
-                                        print(f"📝 Text: {part.text[:50]}...")
+                                        log(f"📝 Text: {part.text[:50]}...")
                                         await websocket.send_json({
                                             "type": "textResponse",
                                             "text": part.text
                                         })
                             
                             if server_content.turn_complete:
-                                print("✅ Turn complete")
+                                log("✅ Turn complete")
                                             
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
-                    print(f"❌ Receive Error: {e}")
+                    log(f"❌ Receive Error: {e}")
                     session_alive = False
 
             receive_task = asyncio.create_task(receive_loop())
@@ -155,11 +161,11 @@ Instructions:
                 input=f"Hello! I am {user_name}. Please greet me.",
                 end_of_turn=True
             )
-            print("✅ Initial greeting sent")
+            log("✅ Initial greeting sent")
             
             # Wait for greeting response
             await asyncio.sleep(3)
-            print("🎤 Ready for realtime input")
+            log("🎤 Ready for realtime input")
 
             # Audio buffering for turn detection
             audio_buffer = []
@@ -182,7 +188,7 @@ Instructions:
                         
                         if time_since_last_audio >= SILENCE_THRESHOLD:
                             # User stopped speaking, send accumulated audio with end_of_turn
-                            print(f"🎙️ Silence detected, sending {len(audio_buffer)} audio chunks")
+                            log(f"🎙️ Silence detected, sending {len(audio_buffer)} audio chunks")
                             
                             try:
                                 # Send any remaining buffered audio
@@ -197,10 +203,10 @@ Instructions:
                                 
                                 # Signal end of turn
                                 await session.send(input="", end_of_turn=True)
-                                print("✅ End of turn sent")
+                                log("✅ End of turn sent")
                                 
                             except Exception as e:
-                                print(f"⚠️ Error sending buffered audio: {e}")
+                                log(f"⚠️ Error sending buffered audio: {e}")
                             
                             audio_buffer = []
                             last_audio_time = None
@@ -217,7 +223,7 @@ Instructions:
                     except asyncio.TimeoutError:
                         continue
                     except WebSocketDisconnect:
-                        print("🔌 Client disconnected")
+                        log("🔌 Client disconnected")
                         break
 
                     if data["type"] == "audio":
@@ -226,7 +232,7 @@ Instructions:
                             last_audio_time = asyncio.get_event_loop().time()
                             
                             if audio_chunk_count % 100 == 0:
-                                print(f"🎤 Audio: {audio_chunk_count} chunks")
+                                log(f"🎤 Audio: {audio_chunk_count} chunks")
                             
                             # Send audio immediately
                             await session.send(
@@ -245,7 +251,7 @@ Instructions:
                                 audio_buffer = audio_buffer[-100:]
                             
                         except Exception as e:
-                            print(f"⚠️ Audio error: {e}")
+                            log(f"⚠️ Audio error: {e}")
                             if "closed" in str(e).lower() or "1011" in str(e):
                                 session_alive = False
                                 break
@@ -255,7 +261,7 @@ Instructions:
                             frame_count += 1
                             
                             if frame_count % 10 == 0:
-                                print(f"📹 Frames: {frame_count}")
+                                log(f"📹 Frames: {frame_count}")
                             
                             await session.send(
                                 input={
@@ -266,29 +272,29 @@ Instructions:
                             )
                             
                         except Exception as e:
-                            print(f"⚠️ Frame error: {e}")
+                            log(f"⚠️ Frame error: {e}")
                             if "closed" in str(e).lower() or "1011" in str(e):
                                 session_alive = False
                                 break
                     
                     # Handle explicit end of turn from client
                     elif data["type"] == "endTurn":
-                        print("🎙️ Client signaled end of turn")
+                        log("🎙️ Client signaled end of turn")
                         try:
                             await session.send(input="", end_of_turn=True)
                         except Exception as e:
-                            print(f"⚠️ End turn error: {e}")
+                            log(f"⚠️ End turn error: {e}")
 
             except Exception as e:
-                print(f"❌ Main loop error: {e}")
+                log(f"❌ Main loop error: {e}")
             finally:
                 session_alive = False
                 silence_task.cancel()
                 receive_task.cancel()
-                print(f"🔌 Done. Audio: {audio_chunk_count}, Frames: {frame_count}")
+                log(f"🔌 Done. Audio: {audio_chunk_count}, Frames: {frame_count}")
 
     except Exception as e:
-        print(f"🔥 CRASH: {e}")
+        log(f"🔥 CRASH: {e}")
         traceback.print_exc()
     finally:
         try:
