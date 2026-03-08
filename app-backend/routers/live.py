@@ -141,10 +141,12 @@ Instructions:
                     blob = bucket.blob(data["filename"])
                     image_bytes = blob.download_as_bytes()
 
+                    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+                    
                     await session.send(
                         input={
                             "mime_type": "image/jpeg",
-                            "data": image_bytes
+                            "data": image_b64
                         }
                     )
 
@@ -234,9 +236,7 @@ Instructions:
                         await session.send(
                             input={
                                 "mime_type": "image/jpeg",
-                                "data": base64.b64decode(
-                                    data["frameBase64"]
-                                )
+                                "data":data["frameBase64"]
                             }
                         )
 
