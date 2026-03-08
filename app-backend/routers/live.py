@@ -4,6 +4,7 @@ import asyncio
 import base64
 import traceback
 import struct
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
@@ -118,10 +119,11 @@ Be warm, helpful, and describe what you see in images."""
             await session.send(input=f"Hello, I am {user_name}. Greet me warmly.", end_of_turn=True)
             log("✅ Greeting sent")
 
-            # Track speech activity
-            speech_active = False
-            silence_count = 0
-            SILENCE_THRESHOLD = 20  # ~2 seconds of silence
+            # Speech detection state
+            last_speech_time = None
+            waiting_for_response = False
+            SILENCE_DURATION = 1.5  # seconds of silence to trigger response
+            SPEECH_THRESHOLD = 2000  # audio level threshold
             
             audio_count = 0
             frame_count = 0
@@ -134,26 +136,29 @@ Be warm, helpful, and describe what you see in images."""
                     try:
                         data = await asyncio.wait_for(websocket.receive_json(), timeout=0.1)
                     except asyncio.TimeoutError:
-                        # Check for end of speech
-                        if speech_active:
-                            silence_count += 1
-                            if silence_count >= SILENCE_THRESHOLD:
-                                log("🎙️ Speech ended, requesting response...")
-                                speech_active = False
-                                silence_count = 0
+                        # Check if we should trigger response
+                        if last_speech_time and not waiting_for_response:
+                            elapsed = time.time() - last_speech_time
+                            if elapsed >= SILENCE_DURATION:
+                                log(f"🎙️ Silence detected ({elapsed:.1f}s), requesting response...")
+                                waiting_for_response = True
                                 
-                                # Send text prompt with last frame context
-                                prompt = "The user just spoke to you. Please respond to them."
+                                # Send image context if available
                                 if last_frame_b64:
                                     try:
                                         await session.send(
                                             input={"data": last_frame_b64, "mime_type": "image/jpeg"},
                                             end_of_turn=False
                                         )
-                                    except:
-                                        pass
+                                    except Exception as e:
+                                        log(f"⚠️ Frame send error: {e}")
                                 
-                                await session.send(input=prompt, end_of_turn=True)
+                                # Request response
+                                await session.send(
+                                    input="Please respond to what the user just said.",
+                                    end_of_turn=True
+                                )
+                                last_speech_time = None
                         continue
                     except WebSocketDisconnect:
                         log("🔌 Disconnected")
@@ -167,12 +172,13 @@ Be warm, helpful, and describe what you see in images."""
                         samples = struct.unpack(f'<{len(audio_bytes)//2}h', audio_bytes)
                         max_val = max(abs(s) for s in samples)
                         
-                        if max_val > 1000:  # Speech detected
-                            speech_active = True
-                            silence_count = 0
+                        if max_val > SPEECH_THRESHOLD:
+                            last_speech_time = time.time()
+                            waiting_for_response = False  # Reset if user speaks again
                         
                         if audio_count % 50 == 0:
-                            log(f"🎤 Audio: {audio_count}, level: {max_val}, speaking: {speech_active}")
+                            status = "speaking" if last_speech_time and (time.time() - last_speech_time) < 0.5 else "silent"
+                            log(f"🎤 Audio: {audio_count}, level: {max_val}, status: {status}")
 
                     elif data["type"] == "frame":
                         frame_count += 1
@@ -182,6 +188,7 @@ Be warm, helpful, and describe what you see in images."""
 
             except Exception as e:
                 log(f"❌ Error: {e}")
+                traceback.print_exc()
             finally:
                 session_alive = False
                 receive_task.cancel()
