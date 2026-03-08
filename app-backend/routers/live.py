@@ -332,4 +332,13 @@ Instructions:
                     await receive_task
                 except asyncio.CancelledError:
                     pass
-                print("🔌 Session
+                print("🔌 Session cleanup complete")
+
+    except Exception as e:
+        print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
+        traceback.print_exc()
+    finally:
+        try:
+            await websocket.close(code=1011)
+        except:
+            pass
