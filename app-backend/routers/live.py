@@ -177,11 +177,14 @@ Instructions:
                         try:
                             frame_bytes = base64.b64decode(data["frameBase64"])
                             # Stream video frames using Realtime Input
-                            await session.send_realtime_input(
-                            video=types.Blob(
-                              data=frame_bytes,
-                              mime_type="image/jpeg"
-                            )
+                            #await session.send_realtime_input(
+                            #video=types.Blob(
+                            #  data=frame_bytes,
+                            #  mime_type="image/jpeg"
+                            #)
+                            #)
+                            await session.send(
+                                input={"mime_type": "image/jpeg", "data": data["frameBase64"]}
                             )
                         except Exception as e:
                             print(f"⚠️ Failed to send video frame: {e}")
