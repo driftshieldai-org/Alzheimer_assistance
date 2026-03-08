@@ -36,6 +36,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("🔌 Client connected to Live Stream")
 
+    # Session state tracking
+    session_alive = True
+    
     try:
         # 1️⃣ Validate JWT Token
         token = websocket.query_params.get("token")
@@ -82,7 +85,7 @@ Instructions:
 6. Keep responses concise and helpful.
 """
 
-        # 5️⃣ Gemini Live Config - Audio only model
+        # 5️⃣ Gemini Live Config
         MODEL_ID = "gemini-live-2.5-flash-native-audio"
         
         config = types.LiveConnectConfig(
@@ -103,88 +106,183 @@ Instructions:
         async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
             print("🟢 Connected to Gemini Live")
 
-            # Send initial greeting prompt
-            await session.send_client_content(
-                turns=[
-                    types.Content(
-                        role="user",
-                        parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")]
-                    )
-                ],
-                turn_complete=True
-            )
-            print("✅ Initial greeting sent")
-
-            # Flag to track if we're ready for realtime input
-            ready_for_realtime = asyncio.Event()
-
-            # 7️⃣ Receive Responses From Gemini
-            async def receive_loop():
+            # Helper function to check if session is still alive
+            def check_session_alive():
+                nonlocal session_alive
                 try:
-                    async for response in session.receive():
-                        # Handle server content
-                        if response.server_content:
-                            server_content = response.server_content
-                            
-                            # Check for interruption
-                            if server_content.interrupted:
-                                await websocket.send_json({"type": "interrupted"})
-                                continue
-                            
-                            # Process model turn
-                            if server_content.model_turn:
-                                for part in server_content.model_turn.parts:
-                                    # Audio response
-                                    if part.inline_data:
-                                        audio_bytes = part.inline_data.data
-                                        b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+                    # Check if the underlying connection is closed
+                    if hasattr(session, '_ws') and session._ws:
+                        if hasattr(session._ws, 'closed') and session._ws.closed:
+                            session_alive = False
+                    if hasattr(session, 'closed') and session.closed:
+                        session_alive = False
+                except Exception:
+                    pass
+                return session_alive
+
+            # Send initial greeting prompt
+            try:
+                await session.send_client_content(
+                    turns=[
+                        types.Content(
+                            role="user",
+                            parts=[types.Part(text=f"Hello! I am {user_name}. Please greet me warmly.")]
+                        )
+                    ],
+                    turn_complete=True
+                )
+                print("✅ Initial greeting sent")
+            except Exception as e:
+                print(f"❌ Failed to send initial greeting: {e}")
+                session_alive = False
+                await websocket.close(code=1011)
+                return
+
+            # Wait for the ACTUAL audio response to complete
+            greeting_received = False
+            try:
+                async for response in session.receive():
+                    if not check_session_alive():
+                        print("❌ Session died while waiting for greeting")
+                        break
+                        
+                    if response.server_content:
+                        server_content = response.server_content
+                        
+                        # Process audio from greeting
+                        if server_content.model_turn:
+                            for part in server_content.model_turn.parts:
+                                if part.inline_data:
+                                    audio_bytes = part.inline_data.data
+                                    b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+                                    try:
                                         await websocket.send_json({
                                             "type": "audioResponse",
                                             "audioBase64": b64_audio
                                         })
-                                    # Text response (if any)
-                                    if part.text:
-                                        await websocket.send_json({
-                                            "type": "textResponse",
-                                            "text": part.text
-                                        })
-                            
-                            # Turn complete - ready for more input
-                            if server_content.turn_complete:
-                                ready_for_realtime.set()
-                                print("✅ Turn complete, ready for realtime input")
+                                        greeting_received = True
+                                    except Exception as e:
+                                        print(f"❌ Failed to send audio to client: {e}")
+                                        session_alive = False
+                                        break
                         
-                        # Handle setup complete
-                        if response.setup_complete:
-                            print("✅ Setup complete")
+                        # Only break when turn is complete AND we received audio
+                        if server_content.turn_complete and greeting_received:
+                            print("✅ Greeting audio received, ready for realtime input")
+                            break
+                    
+                    # Handle setup complete
+                    if response.setup_complete:
+                        print("✅ Setup complete")
+                        
+            except Exception as e:
+                print(f"❌ Error receiving greeting: {e}")
+                session_alive = False
+
+            if not session_alive or not greeting_received:
+                print("❌ Session not ready, closing connection")
+                await websocket.close(code=1011)
+                return
+
+            # Small delay to ensure session is stable
+            await asyncio.sleep(0.5)
+            
+            # Verify session is still alive after delay
+            if not check_session_alive():
+                print("❌ Session died after greeting")
+                await websocket.close(code=1011)
+                return
+
+            print("🎤 Ready to receive realtime audio/video")
+
+            # 7️⃣ Receive loop for ongoing responses
+            async def receive_loop():
+                nonlocal session_alive
+                try:
+                    async for response in session.receive():
+                        if not session_alive:
+                            break
                             
+                        if response.server_content:
+                            server_content = response.server_content
+                            
+                            if server_content.interrupted:
+                                try:
+                                    await websocket.send_json({"type": "interrupted"})
+                                except:
+                                    session_alive = False
+                                    break
+                                continue
+                            
+                            if server_content.model_turn:
+                                for part in server_content.model_turn.parts:
+                                    if part.inline_data:
+                                        audio_bytes = part.inline_data.data
+                                        b64_audio = base64.b64encode(audio_bytes).decode("utf-8")
+                                        try:
+                                            await websocket.send_json({
+                                                "type": "audioResponse",
+                                                "audioBase64": b64_audio
+                                            })
+                                        except:
+                                            session_alive = False
+                                            break
+                                    if part.text:
+                                        try:
+                                            await websocket.send_json({
+                                                "type": "textResponse",
+                                                "text": part.text
+                                            })
+                                        except:
+                                            session_alive = False
+                                            break
+                                            
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
                     print(f"❌ Receive Loop Error: {e}")
-                    traceback.print_exc()
+                    session_alive = False
 
             receive_task = asyncio.create_task(receive_loop())
 
-            # Wait for initial response to complete
-            try:
-                await asyncio.wait_for(ready_for_realtime.wait(), timeout=30.0)
-            except asyncio.TimeoutError:
-                print("⚠️ Timeout waiting for initial response")
-
             # 8️⃣ Process incoming audio/video from client
-            print("🎤 Ready to receive realtime audio/video")
+            audio_chunk_count = 0
+            frame_count = 0
+            last_health_check = asyncio.get_event_loop().time()
             
             try:
-                while True:
-                    data = await websocket.receive_json()
+                while session_alive:
+                    # Periodic health check every 5 seconds
+                    current_time = asyncio.get_event_loop().time()
+                    if current_time - last_health_check > 5:
+                        if not check_session_alive():
+                            print("❌ Session health check failed")
+                            break
+                        last_health_check = current_time
+                    
+                    try:
+                        # Use timeout to allow periodic health checks
+                        data = await asyncio.wait_for(
+                            websocket.receive_json(),
+                            timeout=1.0
+                        )
+                    except asyncio.TimeoutError:
+                        # No data received, continue loop for health check
+                        continue
+                    except WebSocketDisconnect:
+                        print("🔌 Client disconnected")
+                        break
 
-                    # Process audio chunks
                     if data["type"] == "audio":
+                        if not session_alive:
+                            break
                         try:
                             audio_bytes = base64.b64decode(data["audioBase64"])
+                            audio_chunk_count += 1
                             
-                            # Send audio using realtime input
+                            if audio_chunk_count % 50 == 0:
+                                print(f"🎤 Audio chunks sent: {audio_chunk_count}")
+                            
                             await session.send_realtime_input(
                                 media=types.Blob(
                                     data=audio_bytes,
@@ -193,13 +291,22 @@ Instructions:
                             )
                         except Exception as e:
                             print(f"⚠️ Failed to send audio chunk: {e}")
+                            # Check if it's a fatal error
+                            if "closed" in str(e).lower() or "1011" in str(e) or "timeout" in str(e).lower():
+                                print("❌ Fatal session error, stopping")
+                                session_alive = False
+                                break
 
-                    # Process video frames
                     elif data["type"] == "frame":
+                        if not session_alive:
+                            break
                         try:
                             frame_bytes = base64.b64decode(data["frameBase64"])
+                            frame_count += 1
                             
-                            # Send video frame using realtime input
+                            if frame_count % 10 == 0:
+                                print(f"📹 Video frames sent: {frame_count}")
+                            
                             await session.send_realtime_input(
                                 media=types.Blob(
                                     data=frame_bytes,
@@ -208,16 +315,21 @@ Instructions:
                             )
                         except Exception as e:
                             print(f"⚠️ Failed to send video frame: {e}")
+                            # Check if it's a fatal error
+                            if "closed" in str(e).lower() or "1011" in str(e) or "timeout" in str(e).lower():
+                                print("❌ Fatal session error, stopping")
+                                session_alive = False
+                                break
 
             except WebSocketDisconnect:
                 print("🔌 Client disconnected")
+            except Exception as e:
+                print(f"❌ Error in main loop: {e}")
             finally:
+                session_alive = False
                 receive_task.cancel()
-
-    except Exception as e:
-        print(f"🔥 CRITICAL WEBSOCKET CRASH: {e}")
-        traceback.print_exc()
-        try:
-            await websocket.close(code=1011)
-        except:
-            pass
+                try:
+                    await receive_task
+                except asyncio.CancelledError:
+                    pass
+                print("🔌 Session
