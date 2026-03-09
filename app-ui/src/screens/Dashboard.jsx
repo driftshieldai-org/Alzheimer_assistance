@@ -12,11 +12,11 @@ export default function Dashboard({ setCurrentScreen }) {
       </h2>
       <div className="w-full max-w-2xl flex flex-col space-y-8 flex-grow">
         <button onClick={() => setCurrentScreen('store_photos')} className="flex-1 flex flex-col items-center justify-center bg-blue-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-blue-900 active:bg-blue-950 transition-all border-4 border-blue-900">
-          <Camera size={} className="mb-6" />
+          <Camera size={80} className="mb-6" />
           <span className="text-4xl md:text-5xl font-extrabold text-center">Store New Photos</span>
         </button>
         <button onClick={() => setCurrentScreen('live_view')} className="flex-1 flex flex-col items-center justify-center bg-teal-800 text-white rounded-3xl shadow-2xl p-8 hover:bg-teal-900 active:bg-teal-950 transition-all border-4 border-teal-900 mb-8">
-          <Video size={} className="mb-6" />
+          <Video size={80} className="mb-6" />
           <span className="text-4xl md:text-5xl font-extrabold text-center">Understand the place live</span>
         </button>
       </div>
