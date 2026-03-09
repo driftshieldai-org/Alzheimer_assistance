@@ -49,14 +49,14 @@ export default function Signup({ setCurrentScreen }) {
       <div className="w-full max-w-xl flex flex-col space-y-6">
         {signupErrorMsg && (
           <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
-            {}
+            {signupErrorMsg}
           </div>
         )}
         <div>
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Your Name</label>
           <input 
             type="text" 
-            value={}
+            value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Type your name here"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
@@ -66,7 +66,7 @@ export default function Signup({ setCurrentScreen }) {
           <label className="text-3xl font-bold text-blue-900 mb-3 block">User ID</label>
           <input 
             type="text" 
-            value={}
+            value={signupUserId}
             onChange={(e) => setSignupUserId(e.target.value)}
             placeholder="Choose a unique User ID"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
@@ -76,7 +76,7 @@ export default function Signup({ setCurrentScreen }) {
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Password</label>
           <input 
             type="password" 
-            value={}
+            value={signupPassword}
             onChange={(e) => setSignupPassword(e.target.value)}
             placeholder="Type a password here"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
@@ -86,15 +86,15 @@ export default function Signup({ setCurrentScreen }) {
           <label className="text-3xl font-bold text-blue-900 mb-3 block">Type Password Again</label>
           <input 
             type="password" 
-            value={}
+            value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             placeholder="Type your password again"
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
         <button 
-          onClick={}
-          disabled={}
+          onClick={handleSignup}
+          disabled={isSignupLoading}
           className="w-full bg-blue-800 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl hover:bg-blue-900 mt-6 disabled:opacity-70 disabled:cursor-not-allowed transition-all"
         >
           {isSignupLoading ? 'Creating Account...' : 'Sign Up'}
