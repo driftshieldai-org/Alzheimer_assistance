@@ -20,7 +20,8 @@ export default function StorePhotos({ setCurrentScreen }) {
   const webcamRefCapture = useRef(null); 
   const speechRecognitionRef = useRef(null);
   const originalTextRef = useRef('');
-
+  const videoConstraintsCapture = { facingMode: "environment" };
+  
   useEffect(() => {
     let timer;
     if (showSuccess) {
@@ -153,7 +154,7 @@ export default function StorePhotos({ setCurrentScreen }) {
 
         {isCameraActive && !capturedImageSrc && (
           <div className="bg-slate-800 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-slate-900 shadow-2xl space-y-6">
-            <Webcam audio={false} ref={webcamRefCapture} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full max-w-2xl aspect-video object-cover" />
+            <Webcam audio={false} ref={webcamRefCapture} screenshotFormat="image/jpeg" videoConstraints={{ videoConstraintsCapture }} className="rounded-xl w-full max-w-2xl aspect-video object-cover" />
             <div className="flex w-full justify-around space-x-4">
               <button onClick={capturePhoto} className="flex-1 bg-green-700 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center">
                 <CameraIcon size={32} className="mr-4" /> Capture Photo
