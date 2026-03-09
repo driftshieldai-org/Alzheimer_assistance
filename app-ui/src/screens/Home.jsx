@@ -5,7 +5,7 @@ export default function Home({ setCurrentScreen }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6 animate-in fade-in duration-500">
       <div className="flex flex-col items-center mb-16">
-        <Brain size={} className="text-blue-800 mb-6" />
+        <Brain size={120} className="text-blue-800 mb-6" />
         <h1 className="text-6xl font-extrabold text-blue-900 tracking-tight text-center">
           MemoryMate
         </h1>
