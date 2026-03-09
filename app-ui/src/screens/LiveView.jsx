@@ -108,7 +108,7 @@ export default function LiveView({ setCurrentScreen }) {
         if (data.type === "textResponse" && data.text) setAiTextResponse(prev => prev + data.text);
         if (data.type === "interrupted") clearAudioQueue();
         if (data.error) setLiveVideoError(`AI Error: ${data.error}`);
-      } catch (err) {}
+      } catch (err) { console.error("Error parsing message:", err); }
     };
 
     wsRef.current.onerror = () => {
@@ -146,14 +146,14 @@ export default function LiveView({ setCurrentScreen }) {
       
       {liveVideoError && (
         <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center mb-8">
-          {}
+          {liveVideoError}
         </div>
       )}
 
       {isLiveAssistanceActive ? (
         <>
           <div className="w-full max-w-3xl bg-slate-800 aspect-video rounded-3xl flex flex-col items-center justify-center shadow-2xl border-8 border-slate-900 mb-10 overflow-hidden relative">
-            <Webcam audio={} ref={} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full h-full object-cover" />
+            <Webcam audio={false} ref={webcamRefLive} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full h-full object-cover" />
             <div className="absolute top-6 right-6 flex items-center bg-black/50 px-4 py-2 rounded-full">
               <div className="w-6 h-6 rounded-full bg-red-500 animate-pulse mr-3"></div>
               <span className="text-white text-xl font-bold">LIVE STREAM</span>
@@ -161,7 +161,7 @@ export default function LiveView({ setCurrentScreen }) {
           </div>
           <div className="flex flex-col items-center justify-center space-y-6 mb-12 p-8 bg-blue-50 rounded-3xl border-4 border-blue-200 w-full max-w-3xl">
             <div className="flex items-center space-x-6 text-blue-800">
-              <Mic size={} className="bg-blue-200 p-3 rounded-full animate-pulse" />
+              <Mic size={48} className="bg-blue-200 p-3 rounded-full animate-pulse" />
               <div className="flex space-x-2">
                 <div className="w-4 h-12 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                 <div className="w-4 h-16 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
@@ -172,18 +172,18 @@ export default function LiveView({ setCurrentScreen }) {
             <span className="text-3xl font-bold text-blue-900 text-center">Listening and analyzing context in real time...</span>
             {aiTextResponse && (
               <p className="text-2xl text-blue-800 text-center mt-4 p-4 bg-white rounded-xl">
-                {}
+                {aiTextResponse}
               </p>
             )}
           </div>
-          <button onClick={} className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 transition-all mt-auto mb-6 flex justify-center items-center">
-            <StopCircle size={} className="mr-6" /> Stop Live Assistance
+          <button onClick={stopLiveAssistance} className="w-full max-w-3xl bg-red-700 text-white text-5xl font-extrabold py-10 rounded-3xl shadow-2xl hover:bg-red-800 active:bg-red-900 border-8 border-red-900 transition-all mt-auto mb-6 flex justify-center items-center">
+            <StopCircle size={48} className="mr-6" /> Stop Live Assistance
           </button>
         </>
       ) : (
         <div className="flex flex-col items-center justify-center p-6 space-y-8 w-full max-w-3xl">
-          <button onClick={} className="w-full bg-teal-600 text-white text-5xl font-extrabold py-12 rounded-3xl shadow-2xl hover:bg-teal-700 active:bg-teal-800 border-8 border-teal-800 transition-all">
-            <Video size={} className="inline mr-6" /> Start Live Assistance
+          <button onClick={startLiveAssistance} className="w-full bg-teal-600 text-white text-5xl font-extrabold py-12 rounded-3xl shadow-2xl hover:bg-teal-700 active:bg-teal-800 border-8 border-teal-800 transition-all">
+            <Video size={48} className="inline mr-6" /> Start Live Assistance
           </button>
           <BackButton onClick={() => setCurrentScreen('dashboard')} />
         </div>
