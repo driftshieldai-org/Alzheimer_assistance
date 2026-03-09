@@ -55,10 +55,12 @@ async def upload_photo(
         
     # 2️⃣ NEW: Generate detailed visual description with Gemini
     try:
-        prompt = f"""The user provided this short description for the photo: '{description}'. 
+
+		prompt = f"""The user provided this short description for the photo: '{description}'. 
         Please provide a highly detailed visual description of this exact image. 
-        Describe the layout, colors, specific objects, background, and unique identifying features. 
-        This text will be used later by another AI to recognize this exact place, object, or person in a live video stream."""
+        CRITICAL INSTRUCTION FOR PEOPLE: If this image contains a person, focus heavily on their permanent facial and physical features. Describe their facial structure, hair color and style, eye color, skin tone, facial hair, glasses, or distinctive marks (like moles or scars). DO NOT rely heavily on their clothing, as clothing changes.
+        If it is an object or place, describe its unique identifying features, layout, and colors.
+        This text will be used later by an AI to recognize this exact person, place, or object in a live video stream."""
         
         # Use aio (async) to prevent blocking the FastAPI server
         ai_response = await genai_client.aio.models.generate_content(
