@@ -88,6 +88,12 @@ export default function StorePhotos({ setCurrentScreen }) {
     }
 
     const token = localStorage.getItem('token');
+    if (!token) {
+      setPhotoUploadErrorMsg('You must be logged in.');
+      setIsPhotoUploading(false);
+      return;
+    }
+    
     const formData = new FormData();
     formData.append('photo', photoToSend);
     formData.append('description', photoDescription);
@@ -96,7 +102,7 @@ export default function StorePhotos({ setCurrentScreen }) {
     try {
       const response = await fetch('/api/photos/upload', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${}` },
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
       if (response.ok) {
@@ -127,18 +133,18 @@ export default function StorePhotos({ setCurrentScreen }) {
         
         {photoUploadErrorMsg && (
           <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
-            {}
+            {photoUploadErrorMsg}
           </div>
         )}
 
         {!isCameraActive && !photoFile && !capturedImageSrc && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
             <button onClick={() => fileInputRef.current.click()} className="flex flex-col items-center justify-center bg-blue-100 border-4 border-blue-300 text-blue-900 p-8 rounded-2xl shadow-md hover:bg-blue-200">
-              <Upload size={} className="mb-4" />
+              <Upload size={64} className="mb-4" />
               <span className="text-3xl font-bold">Upload from Device</span>
             </button>
             <button onClick={() => setIsCameraActive(true)} className="flex flex-col items-center justify-center bg-green-100 border-4 border-green-300 text-green-900 p-8 rounded-2xl shadow-md hover:bg-green-200">
-              <CameraIcon size={} className="mb-4 text-green-900" />
+              <CameraIcon size={64} className="mb-4 text-green-900" />
               <span className="text-3xl font-bold text-green-900">Take a Photo Now</span>
             </button>
           </div>
@@ -146,13 +152,13 @@ export default function StorePhotos({ setCurrentScreen }) {
 
         {isCameraActive && !capturedImageSrc && (
           <div className="bg-slate-800 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-slate-900 shadow-2xl space-y-6">
-            <Webcam audio={} ref={} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full max-w-2xl aspect-video object-cover" />
+            <Webcam audio={false} ref={webcamRefCapture} screenshotFormat="image/jpeg" videoConstraints={{ facingMode: "environment" }} className="rounded-xl w-full max-w-2xl aspect-video object-cover" />
             <div className="flex w-full justify-around space-x-4">
-              <button onClick={} className="flex-1 bg-green-700 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center">
-                <CameraIcon size={} className="mr-4" /> Capture Photo
+              <button onClick={capturePhoto} className="flex-1 bg-green-700 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center">
+                <CameraIcon size={32} className="mr-4" /> Capture Photo
               </button>
               <button onClick={() => setIsCameraActive(false)} className="flex-1 bg-red-100 text-red-900 text-3xl font-bold py-6 rounded-2xl flex items-center justify-center">
-                <ArrowLeft size={} className="mr-4" /> Cancel
+                <ArrowLeft size={32} className="mr-4" /> Cancel
               </button>
             </div>
           </div>
@@ -161,12 +167,12 @@ export default function StorePhotos({ setCurrentScreen }) {
         {capturedImageSrc && (
           <div className="bg-slate-100 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-blue-500 shadow-2xl space-y-6">
             <h3 className="text-3xl font-bold text-blue-900 mt-2">Captured Photo Preview:</h3>
-            <img src={} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
+            <img src={capturedImageSrc} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
             <div className="flex w-full justify-around space-x-4">
               <button onClick={() => setCapturedImageSrc(null)} className="flex-1 bg-orange-500 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center">
-                <ArrowLeft size={} className="mr-4" /> Retake Photo
+                <ArrowLeft size={32} className="mr-4" /> Retake Photo
               </button>
-              <button onClick={} disabled={isPhotoUploading || !photoDescription || !photoDate} className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center disabled:opacity-70">
+              <button onClick={handlePhotoUpload} disabled={isPhotoUploading || !photoDescription || !photoDate} className="flex-1 bg-blue-700 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center disabled:opacity-70">
                 {isPhotoUploading ? 'Uploading...' : 'Use & Save Photo'}
               </button>
             </div>
@@ -175,7 +181,7 @@ export default function StorePhotos({ setCurrentScreen }) {
 
         {photoFile && !isCameraActive && !capturedImageSrc && (
           <div className="bg-blue-50 border-8 border-dashed border-blue-300 rounded-3xl p-12 flex flex-col items-center justify-center shadow-md">
-            <ImageIcon size={} className="text-blue-800 mb-4" />
+            <ImageIcon size={64} className="text-blue-800 mb-4" />
             <span className="text-3xl font-bold text-blue-900 text-center">{photoFile.name}</span>
             <button onClick={() => { setPhotoFile(null); if(fileInputRef.current) fileInputRef.current.value = null; }} className="mt-6 px-6 py-3 bg-red-500 text-white text-xl font-bold rounded-xl hover:bg-red-600">
               Remove Photo
@@ -183,7 +189,7 @@ export default function StorePhotos({ setCurrentScreen }) {
           </div>
         )}
 
-        <input type="file" accept="image/*" onChange={(e) => e.target.files && setPhotoFile(e.target.files[0])} ref={} className="hidden" />
+        <input type="file" accept="image/*" onChange={(e) => e.target.files && setPhotoFile(e.target.files[0])} ref={fileInputRef} className="hidden" />
 
         {(photoFile || capturedImageSrc || (!photoFile && !capturedImageSrc && !isCameraActive)) && (
           <>
@@ -193,10 +199,10 @@ export default function StorePhotos({ setCurrentScreen }) {
                 <span className="text-xl text-blue-600 font-medium pb-1">(Hold mic to speak)</span>
               </label>
               <div className="relative">
-                <textarea rows={3} value={} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="Type or speak details for this picture..." className="w-full text-3xl p-6 pr-24 pt-6 border-4 border-blue-300 rounded-2xl outline-none bg-white text-blue-900 resize-none" />
+                <textarea rows={3} value={photoDescription} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="Type or speak details for this picture..." className="w-full text-3xl p-6 pr-24 pt-6 border-4 border-blue-300 rounded-2xl outline-none bg-white text-blue-900 resize-none" />
                 {photoDescription && (
                   <button onClick={() => setPhotoDescription('')} className="absolute right-4 top-4 p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-full">
-                    <X size={} />
+                    <X size={32} />
                   </button>
                 )}
                 <button onMouseDown={startListening} onMouseUp={stopListening} onMouseLeave={stopListening} onTouchStart={startListening} onTouchEnd={stopListening} className={`absolute right-4 bottom-4 p-4 rounded-full shadow-lg ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-200 text-blue-800'}`}>
@@ -206,14 +212,14 @@ export default function StorePhotos({ setCurrentScreen }) {
             </div>
             <div>
               <label className="text-3xl font-bold text-blue-900 mb-4 block">Date of photo</label>
-              <input type="date" value={} onChange={(e) => setPhotoDate(e.target.value)} className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl outline-none bg-white text-blue-900" />
+              <input type="date" value={photoDate} onChange={(e) => setPhotoDate(e.target.value)} className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl outline-none bg-white text-blue-900" />
             </div>
           </>
         )}
 
         {(photoFile && !capturedImageSrc) && (
           <div className="flex flex-col space-y-6 pt-6">
-            <button onClick={} disabled={isPhotoUploading || !photoDescription || !photoDate} className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl disabled:opacity-70">
+            <button onClick={handlePhotoUpload} disabled={isPhotoUploading || !photoDescription || !photoDate} className="w-full bg-green-700 text-white text-4xl font-extrabold py-8 rounded-2xl shadow-xl disabled:opacity-70">
               {isPhotoUploading ? 'Uploading...' : 'Save Photo'}
             </button>
           </div>
@@ -229,7 +235,7 @@ export default function StorePhotos({ setCurrentScreen }) {
       {showSuccess && (
         <div className="fixed inset-0 bg-blue-950/90 flex flex-col items-center justify-center z-50 p-6 animate-in fade-in" onClick={() => { setShowSuccess(false); setCurrentScreen('dashboard'); }}>
           <div className="bg-white rounded-3xl p-12 max-w-2xl w-full flex flex-col items-center text-center shadow-2xl border-8 border-green-500">
-            <CheckCircle size={} className="text-green-600 mb-8" />
+            <CheckCircle size={120} className="text-green-600 mb-8" />
             <h2 className="text-5xl font-extrabold text-blue-900 leading-tight">Information has been stored safely!</h2>
           </div>
         </div>
