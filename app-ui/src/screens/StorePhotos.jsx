@@ -90,10 +90,11 @@ export default function StorePhotos({ setCurrentScreen }) {
     const token = localStorage.getItem('token');
     if (!token) {
       setPhotoUploadErrorMsg('You must be logged in.');
-      setIsPhotoUploading(false);
+      setCurrentScreen('login');
       return;
     }
-    
+
+        
     const formData = new FormData();
     formData.append('photo', photoToSend);
     formData.append('description', photoDescription);
