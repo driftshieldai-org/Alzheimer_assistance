@@ -93,7 +93,7 @@ export default function LiveView({ setCurrentScreen }) {
     setAiTextResponse('');
     clearAudioQueue();
 
-    const wsUrl = `wss://${new URL(BACKEND_API_BASE).host}/api/live/ws/live/process-stream?token=${}`;
+    const wsUrl = `wss://${new URL(BACKEND_API_BASE).host}/api/live/ws/live/process-stream?token=${token}`;
     wsRef.current = new WebSocket(wsUrl);
 
     wsRef.current.onopen = () => {
