@@ -34,33 +34,57 @@ export default function StorePhotos({ setCurrentScreen }) {
   }, [showSuccess, setCurrentScreen]);
 
   const startListening = (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (isListening) return; // Prevent double starting
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("Speech recognition is not supported in this browser. Please type instead.");
       return;
     }
+
     originalTextRef.current = photoDescription;
-    setIsListening(true);
-    speechRecognitionRef.current = new SpeechRecognition();
-    speechRecognitionRef.current.continuous = true;
-    speechRecognitionRef.current.interimResults = true;
-    speechRecognitionRef.current.onresult = (event) => {
+    
+    const recognition = new SpeechRecognition();
+    speechRecognitionRef.current = recognition;
+    
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
       let currentTranscript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         currentTranscript += event.results[i][0].transcript;
       }
-      const space = originalTextRef.current ? ' ' : '';
+      const space = (originalTextRef.current && currentTranscript) ? ' ' : '';
       setPhotoDescription(originalTextRef.current + space + currentTranscript);
     };
-    speechRecognitionRef.current.onerror = () => setIsListening(false);
-    speechRecognitionRef.current.onend = () => setIsListening(false);
-    speechRecognitionRef.current.start();
+
+    recognition.onerror = (event) => {
+      console.error("Speech recognition error:", event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch (err) {
+      console.error("Failed to start speech recognition", err);
+      setIsListening(false);
+    }
   };
 
   const stopListening = (e) => {
-    e.preventDefault();
-    if (speechRecognitionRef.current) speechRecognitionRef.current.stop();
+    if (e) e.preventDefault();
+    if (speechRecognitionRef.current && isListening) {
+      try {
+        speechRecognitionRef.current.stop();
+      } catch (err) {}
+    }
     setIsListening(false);
   };
 
@@ -89,13 +113,13 @@ export default function StorePhotos({ setCurrentScreen }) {
     }
 
     const token = localStorage.getItem('token');
-    if (!token) {
+	if (!token) {
       setPhotoUploadErrorMsg('You must be logged in.');
       setCurrentScreen('login');
       return;
-    }
+    }			 
 
-        
+		
     const formData = new FormData();
     formData.append('photo', photoToSend);
     formData.append('description', photoDescription);
@@ -202,12 +226,21 @@ export default function StorePhotos({ setCurrentScreen }) {
               </label>
               <div className="relative">
                 <textarea rows={3} value={photoDescription} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="Type or speak details for this picture..." className="w-full text-3xl p-6 pr-24 pt-6 border-4 border-blue-300 rounded-2xl outline-none bg-white text-blue-900 resize-none" />
+                
                 {photoDescription && (
-                  <button onClick={() => setPhotoDescription('')} className="absolute right-4 top-4 p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-full">
+                  <button onClick={() => setPhotoDescription('')} className="absolute right-24 top-4 p-3 bg-slate-100 text-slate-500 hover:bg-red-100 hover:text-red-600 rounded-full">
                     <X size={32} />
                   </button>
                 )}
-                <button onMouseDown={startListening} onMouseUp={stopListening} onMouseLeave={stopListening} onTouchStart={startListening} onTouchEnd={stopListening} className={`absolute right-4 bottom-4 p-4 rounded-full shadow-lg ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-200 text-blue-800'}`}>
+                
+                <button 
+                  onMouseDown={startListening} 
+                  onMouseUp={stopListening} 
+                  onMouseLeave={stopListening} 
+                  onTouchStart={startListening} 
+                  onTouchEnd={stopListening} 
+                  className={`absolute right-4 bottom-4 p-4 rounded-full shadow-lg select-none touch-none ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-200 text-blue-800'}`}
+                >
                   <Mic size={40} />
                 </button>
               </div>
