@@ -55,8 +55,8 @@ async def upload_photo(
         
     # 2️⃣ NEW: Generate detailed visual description with Gemini
     try:
-
-		prompt = f"""The user provided this short description for the photo: '{description}'. 
+		
+		prompt = f"""The user provided this short description for the photo: '{description}'.
         Please provide a highly detailed visual description of this exact image. 
         CRITICAL INSTRUCTION FOR PEOPLE: If this image contains a person, focus heavily on their permanent facial and physical features. Describe their facial structure, hair color and style, eye color, skin tone, facial hair, glasses, or distinctive marks (like moles or scars). DO NOT rely heavily on their clothing, as clothing changes.
         If it is an object or place, describe its unique identifying features, layout, and colors.
