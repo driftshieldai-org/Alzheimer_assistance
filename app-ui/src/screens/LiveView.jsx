@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Webcam from 'react-webcam';
-import { Mic, StopCircle, Video } from 'lucide-react';
+import { Mic, StopCircle, Video, Info } from 'lucide-react';
 import SignOutButton from '../components/SignOutButton';
 import BackButton from '../components/BackButton';
 import { AUDIO_WORKLET_CODE, initPlaybackContext, clearAudioQueue, playPcmAudio } from '../utils/audioUtils';
@@ -11,6 +11,7 @@ export default function LiveView({ setCurrentScreen }) {
   const [isLiveAssistanceActive, setIsLiveAssistanceActive] = useState(false);
   const [liveVideoError, setLiveVideoError] = useState('');
   const [aiTextResponse, setAiTextResponse] = useState('');
+  const [systemMessage, setSystemMessage] = useState(''); // New state for backend alerts
   
   const webcamRefLive = useRef(null); 
   const wsRef = useRef(null); 
@@ -18,6 +19,11 @@ export default function LiveView({ setCurrentScreen }) {
   const audioContextRef = useRef(null);
   const micStreamRef = useRef(null);
   const workletNodeRef = useRef(null);
+  
+  // Connection Reconnect Refs
+  const intentionalStopRef = useRef(false);
+  const reconnectDelayRef = useRef(1000);
+  const reconnectTimeoutIdRef = useRef(null);
 
   // Automatically cleans up stream if the user navigates away
   useEffect(() => {
@@ -76,11 +82,8 @@ export default function LiveView({ setCurrentScreen }) {
       console.error("Error capturing frame:", err);
     }
   };
-  
-  const startLiveAssistance = async () => {
-    const ctx = initPlaybackContext();
-    if (ctx.state === 'suspended') await ctx.resume();
-     
+
+  const connectWebSocket = () => {
     const token = localStorage.getItem('token');
     if (!token) {
       setLiveVideoError("Please log in to use live assistance.");
@@ -88,22 +91,30 @@ export default function LiveView({ setCurrentScreen }) {
       return;
     }
 
-    setIsLiveAssistanceActive(true);
-    setLiveVideoError('');
-    setAiTextResponse('');
-    clearAudioQueue();
-
     const wsUrl = `wss://${new URL(BACKEND_API_BASE).host}/api/live/ws/live/process-stream?token=${token}`;
-    wsRef.current = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-    wsRef.current.onopen = () => {
+    ws.onopen = () => {
+      console.log("🟢 Connected to MemoryMate!");
+      reconnectDelayRef.current = 1000; // Reset reconnect timer on success
+      setSystemMessage(''); // Clear any reconnecting messages
       startMicCapture();
-      frameIntervalRef.current = setInterval(sendVideoFrame, 2000);
+      
+      // Sending frame every 1.5 seconds to match backend rate limits and save quota
+      frameIntervalRef.current = setInterval(sendVideoFrame, 1500); 
     };
 
-    wsRef.current.onmessage = (event) => {
+    ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        
+        // Handle New System Messages (Quota/Info)
+        if (data.type === "systemMessage") {
+            setSystemMessage(data.message);
+            setTimeout(() => setSystemMessage(''), 6000); // Auto-clear after 6s
+        }
+        
         if (data.type === "audioResponse" && data.audioBase64) playPcmAudio(data.audioBase64);
         if (data.type === "textResponse" && data.text) setAiTextResponse(prev => prev + data.text);
         if (data.type === "interrupted") clearAudioQueue();
@@ -111,23 +122,67 @@ export default function LiveView({ setCurrentScreen }) {
       } catch (err) { console.error("Error parsing message:", err); }
     };
 
-    wsRef.current.onerror = () => {
-      setLiveVideoError("Connection error. Please try again.");
-      stopLiveAssistance();
+    ws.onerror = () => {
+      console.warn("WebSocket encountered an error.");
     };
 
-    wsRef.current.onclose = () => {
-      if (isLiveAssistanceActive) stopLiveAssistance();
+    ws.onclose = (event) => {
+      // 🛡️ RECONNECTION LOGIC
+      if (intentionalStopRef.current) return; // User clicked Stop, do not reconnect.
+
+      if (event.code !== 1000) {
+        let delay = reconnectDelayRef.current;
+        
+        // Custom backend code for Quota Exceeded (429)
+        if (event.code === 4029) {
+            delay = 5000; // Wait 5 seconds for quota to refill
+            setSystemMessage("I'm thinking a little too fast! Taking a quick breath... reconnecting shortly.");
+        } else {
+            setSystemMessage("Connection dropped. Reconnecting securely...");
+        }
+
+        console.log(`⏳ Reconnecting in ${delay / 1000} seconds...`);
+        
+        // Clean up current intervals before waiting
+        if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+        if (micStreamRef.current) micStreamRef.current.getTracks().forEach(track => track.stop());
+
+        reconnectTimeoutIdRef.current = setTimeout(() => {
+          // Exponential Backoff up to 10 seconds
+          reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 10000);
+          connectWebSocket();
+        }, delay);
+      } else {
+          // Clean 1000 close, stop the session
+          stopLiveAssistance();
+      }
     };
   };
   
+  const startLiveAssistance = async () => {
+    const ctx = initPlaybackContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+    
+    setIsLiveAssistanceActive(true);
+    setLiveVideoError('');
+    setAiTextResponse('');
+    setSystemMessage('');
+    intentionalStopRef.current = false; // Reset the manual stop flag
+    clearAudioQueue();
+
+    connectWebSocket();
+  };
+  
   const stopLiveAssistance = () => {
+    intentionalStopRef.current = true; // Prevents the onclose handler from auto-reconnecting
+    
+    if (reconnectTimeoutIdRef.current) clearTimeout(reconnectTimeoutIdRef.current);
     if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
-    if (wsRef.current) wsRef.current.close();
+    if (wsRef.current) wsRef.current.close(1000); // 1000 is clean exit
     if (workletNodeRef.current) workletNodeRef.current.disconnect();
     if (audioContextRef.current) audioContextRef.current.close();
     if (micStreamRef.current) micStreamRef.current.getTracks().forEach(track => track.stop());
-    
+     
     frameIntervalRef.current = null;
     wsRef.current = null;
     workletNodeRef.current = null;
@@ -137,6 +192,7 @@ export default function LiveView({ setCurrentScreen }) {
     clearAudioQueue();
     setIsLiveAssistanceActive(false);
     setAiTextResponse('');
+    setSystemMessage('');
   };
 
   return (
@@ -144,9 +200,18 @@ export default function LiveView({ setCurrentScreen }) {
       <SignOutButton setCurrentScreen={setCurrentScreen} />
       <h2 className="text-5xl font-extrabold text-blue-900 mt-8 mb-8 text-center">Live Assistance</h2>
       
+      {/* General Error Banner */}
       {liveVideoError && (
-        <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center mb-8">
+        <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center mb-8 w-full max-w-3xl">
           {liveVideoError}
+        </div>
+      )}
+
+      {/* System Message / Reconnect Banner */}
+      {systemMessage && (
+        <div className="bg-yellow-100 text-yellow-900 p-6 rounded-2xl text-2xl font-bold border-4 border-yellow-300 text-center mb-8 flex items-center justify-center shadow-md w-full max-w-3xl transition-all animate-in fade-in slide-in-from-top-4">
+          <Info size={36} className="mr-4 text-yellow-700" />
+          {systemMessage}
         </div>
       )}
 
