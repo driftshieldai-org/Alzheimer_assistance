@@ -352,7 +352,7 @@ CRITICAL BEHAVIORAL RULES:
             async def forward_to_gemini():
                 nonlocal session_alive
                 last_frame_time = 0 # ⏱️ Tracker for frame rate limiting
-				frame_counter = 0 # ⏱️  Track frames for proactive scanning
+                frame_counter = 0 # ⏱️  Track frames for proactive scanning
                 
                 try:
                     initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me, and immediately look at my camera feed to tell me where I am.")]
