@@ -116,7 +116,7 @@ async def websocket_endpoint(websocket: WebSocket):
             ]
         )
 
-		current_time_str = datetime.now(pytz.UTC).strftime("%I:%M %p on %A, %B %d, %Y") # Note: Adjust timezone as needed
+        current_time_str = datetime.now(pytz.UTC).strftime("%I:%M %p on %A, %B %d, %Y") # Note: Adjust timezone as needed
 
         
         # 3️⃣ Highly Advanced System Instruction
