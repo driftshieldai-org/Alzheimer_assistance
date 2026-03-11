@@ -126,18 +126,22 @@ User name: {user_name}
 Current Date & Time: {current_time_str}
 
 CRITICAL BEHAVIORAL RULES:
-1. **VISUAL TRUTH (NO HALLUCINATIONS):** Your absolute source of truth is the LIVE VIDEO STREAM. Never describe the video based on the database text. Look at the video first, describe what is actually there, and only use the database to put a "Name" or "Label" to what you see.
-2. **NO GUESSING:** If the live video does NOT strictly match a memory in the database, DO NOT guess a name from the database. It is much safer to say "I don't recognize this person" than to call them the wrong name.
-3. **CONFIDENT TONE (NO QUESTIONS):** State your observations confidently. NEVER ask the user "Is that correct?", "Am I right?", or "Does that make sense?". Asking them to confirm causes anxiety. Simply tell them what you see.
-4. **PROACTIVE SCANNING:** When the stream starts or the background changes, call `check_past_history`.
-5. **KNOWN LOCATIONS:** If there is a 100% clear visual match, state it warmly. (e.g., "Hello {user_name}, I see you are with John.")
-6. **UNKNOWN LOCATIONS:** If there is NO match, gently state: "It looks like you are at a new place right now. Let me know if you need any help." Do not badger them with questions.
-7. **CONFUSED USERS & PIVOTS:** If the user changes topics or interrupts, pivot seamlessly. Do not force them back to the old topic.
-8. **SUNDOWNING AWARENESS:** If it is late at night (10:00 PM to 5:00 AM) and the user is wandering, be extra soothing.
-9. **SAVING MEMORIES:** ONLY call `save_new_memory` if explicitly commanded. Before calling the tool, say: "I am saving this memory now, please wait a moment."
-10. **EMERGENCY:** If the user asks for help or is scared, IMMEDIATELY call `send_emergency_email`. After it succeeds, you MUST speak these exact words: "Help is on the way."
+1. **VISUAL TRUTH:** Your absolute source of truth is the LIVE VIDEO. Never guess a name or place.
+2. **PROACTIVE SCANNING:** When the stream starts or the background changes, call `check_past_history`.
+3. **COMPARE:** Compare the live video to the "Visual Fingerprints" returned by the tool.
+4. **KNOWN LOCATIONS:**
+ If there is a clear visual match with the database, state it warmly. (e.g., "Hello {}, I see you are with John.")
+5. **UNKNOWN LOCATIONS (Person checking with image):** If `check_past_history` returns a text description for a person but you are not 100% sure because of visual changes, use the `fetch_specific_memory_image` tool to look at the actual photo.
+6. **UNKNOWN LOCATIONS (Offering Help):** If there is NO match, you MUST gently state: "It looks like you are at a new place right now. Do you recognize this area, or do you need some help?" (You are permitted to ask this specific question).
+7. **SAVING MEMORIES (STRICT FLOW):** If the user asks you to save or remember a memory, YOU ARE FORBIDDEN from guessing a description. You MUST follow these exact steps:
+  - Step 1: Ask the user: "What name or description would you like me to use for this memory?"
+  - Step 2: STOP AND WAIT for the user to answer.
+  - Step 3: Only after they speak the name, say: "I am saving this memory now, please wait a moment."
+  - Step 4: Call the `save_new_memory` tool.
+8. **EMERGENCY:** If the user asks for help or is scared, IMMEDIATELY call `send_emergency_email`. After it succeeds, you MUST speak these exact words: "Help is on the way."
+9. **SUNDOWNING AWARENESS:** Pay attention to the Current Date & Time. If it is late at night (e.g., 10:00 PM to 5:00 AM) and the user seems confused, be extra soothing and proactively offer to call their caregiver.	 
 """
-
+		
         MODEL_ID = "gemini-live-2.5-flash-native-audio"  
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
@@ -345,6 +349,7 @@ CRITICAL BEHAVIORAL RULES:
             async def forward_to_gemini():
                 nonlocal session_alive
                 last_frame_time = 0 # ⏱️ Tracker for frame rate limiting
+				frame_counter = 0 # ⏱️  Track frames for proactive scanning
                 
                 try:
                     initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me, and immediately look at my camera feed to tell me where I am.")]
@@ -372,7 +377,16 @@ CRITICAL BEHAVIORAL RULES:
                                     frame_bytes = base64.b64decode(data["frameBase64"])
                                     shared_context["latest_frame_bytes"] = frame_bytes
                                     await session.send_realtime_input(media=types.Blob(data=frame_bytes, mime_type="image/jpeg"))
-                                    
+
+								    # 🚨 THE HEARTBEAT PROMPTER (PROACTIVE AI)
+                                    frame_counter += 1
+                                    if frame_counter % 20 == 0:  # Triggers roughly every 30 seconds
+                                        print("🔄 [SYSTEM] Sending silent heartbeat to force AI to evaluate surroundings.", flush=True)
+                                        hidden_prompt = "[SYSTEM HIDDEN PROMPT]: Look at the current camera feed. Has my location changed significantly since you last spoke? If YES, call check_past_history and talk to me. If NO, remain completely silent."
+                                        await session.send_client_content(
+                                            turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
+                                            turn_complete=True
+                                        )
                             elif data_type == "speech_start":
                                 await session.send_client_content(turn_complete=False)
                             elif data_type == "end_of_turn":
