@@ -32,9 +32,9 @@ BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
 JWT_SECRET = os.environ.get("JWT_SECRET", "fallback_secret_for_dev")
 
 # Email Configurations
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "memorymate.alert@gmail.com")
-RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL", "caregiver@example.com")
-GMAIL_SECRET_ID = os.environ.get("GMAIL_SECRET_ID", f"projects/{PROJECT_ID}/secrets/gmail_oauth_secret/versions/latest")
+SENDER_EMAIL = "driftshieldai@gmail.com"
+RECIPIENT_EMAIL = "driftshieldai@gmail.com"
+GMAIL_SECRET_ID = os.environ.get("GMAIL_SECRET_ID", f"projects/{PROJECT_ID}/secrets/gmail-oauth-creds/versions/latest")
 
 db = firestore.Client(project=PROJECT_ID)
 storage_client = storage.Client(project=PROJECT_ID)
@@ -120,21 +120,22 @@ async def websocket_endpoint(websocket: WebSocket):
 
         
         # 3️⃣ Highly Advanced System Instruction
-        system_instruction = f"""You are MemoryMate, a proactive, patient, and caring AI guardian for a user with memory loss.
+        system_instruction = f"""You are MemoryMate, a proactive and caring AI guardian for a user with memory loss.
 
 User name: {user_name}
 Current Date & Time: {current_time_str}
 
 CRITICAL BEHAVIORAL RULES:
-1. **PROACTIVE SCANNING:** When the stream starts, immediately look at the background and call `check_past_history`.
-2. **FLEXIBLE HUMAN MATCHING:** When checking history for people, remember they may be on a screen or in real life, have different hair/beards, or be in a group. Focus on core facial structure.
-3. **WHEN IN DOUBT, FETCH THE PHOTO:** If `check_past_history` returns a text description but you are not 100% sure because of visual changes, use the `fetch_specific_memory_image` tool to look at the actual photo.
-4. **KNOWN LOCATIONS:** If there is a clear match, state it warmly. (e.g., "Hello {user_name}, I see you are with John.")
-5. **UNKNOWN LOCATIONS:** If you cannot find a match, gently warn them: "It looks like you are at a new place. Do you recognize this area, or would you like some help?"
-6. **CONFUSED USERS & PIVOTS (CRITICAL):** The user may forget what they were saying, suddenly change topics, or interrupt you mid-sentence. If this happens, DO NOT correct them. DO NOT force them back to the previous topic. Seamlessly, patiently, and warmly pivot to whatever their new topic is.
-7. **SUNDOWNING AWARENESS:** Pay attention to the Current Time. If it is late at night (10:00 PM to 5:00 AM) and the user is wandering or confused, be extra soothing.
-8. **SAVING MEMORIES:** ONLY call `save_new_memory` if explicitly commanded. Before calling the tool, say: "I am saving the memory now and will confirm in a few moments, please wait."
-9. **EMERGENCY:** If the user asks for help, says they are lost, or is scared, IMMEDIATELY call `send_emergency_email`. **After the tool succeeds, you MUST speak these exact words: "Help is on the way."** Follow it with a comforting phrase like "Please stay right here, everything is going to be okay."
+1. **VISUAL TRUTH (NO HALLUCINATIONS):** Your absolute source of truth is the LIVE VIDEO STREAM. Never describe the video based on the database text. Look at the video first, describe what is actually there, and only use the database to put a "Name" or "Label" to what you see.
+2. **NO GUESSING:** If the live video does NOT strictly match a memory in the database, DO NOT guess a name from the database. It is much safer to say "I don't recognize this person" than to call them the wrong name.
+3. **CONFIDENT TONE (NO QUESTIONS):** State your observations confidently. NEVER ask the user "Is that correct?", "Am I right?", or "Does that make sense?". Asking them to confirm causes anxiety. Simply tell them what you see.
+4. **PROACTIVE SCANNING:** When the stream starts or the background changes, call `check_past_history`.
+5. **KNOWN LOCATIONS:** If there is a 100% clear visual match, state it warmly. (e.g., "Hello {user_name}, I see you are with John.")
+6. **UNKNOWN LOCATIONS:** If there is NO match, gently state: "It looks like you are at a new place right now. Let me know if you need any help." Do not badger them with questions.
+7. **CONFUSED USERS & PIVOTS:** If the user changes topics or interrupts, pivot seamlessly. Do not force them back to the old topic.
+8. **SUNDOWNING AWARENESS:** If it is late at night (10:00 PM to 5:00 AM) and the user is wandering, be extra soothing.
+9. **SAVING MEMORIES:** ONLY call `save_new_memory` if explicitly commanded. Before calling the tool, say: "I am saving this memory now, please wait a moment."
+10. **EMERGENCY:** If the user asks for help or is scared, IMMEDIATELY call `send_emergency_email`. After it succeeds, you MUST speak these exact words: "Help is on the way."
 """
 
         MODEL_ID = "gemini-live-2.5-flash-native-audio"  
@@ -178,10 +179,11 @@ CRITICAL BEHAVIORAL RULES:
                                             photos_data = await asyncio.to_thread(fetch_db)
                                             memories_context = [f"Label: {d.get('description', '')}\nFilename: {d.get('filename', '')}\nDetails: {d.get('geminiDescription', '')}" for d in photos_data]
                                             
+                                            # 🔴 NEW STRICT TOOL RESULT FORMAT
                                             if memories_context:
-                                                tool_result = "Compare the video to these memories. If you suspect a match but need visual proof, call 'fetch_specific_memory_image' with the Filename to look at the photo.\n\n" + "\n---\n".join(memories_context)
+                                                tool_result = "DATABASE KNOWLEDGE BASE:\n" + "\n---\n".join(memories_context) + "\n\nCRITICAL INSTRUCTION: Do NOT assume the live video matches one of these entries. ONLY declare a match if the LIVE VIDEO perfectly aligns with the visual 'Details' above. If it does not match, ignore this database and rely purely on the live video."
                                             else:
-                                                tool_result = "No past memories found."
+                                                tool_result = "Database is empty. You are looking at an unknown location/person."
                                         except Exception as e:
                                             tool_result = f"Database error: {e}"
                                             
