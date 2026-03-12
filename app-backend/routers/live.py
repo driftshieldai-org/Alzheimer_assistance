@@ -352,7 +352,8 @@ CRITICAL BEHAVIORAL RULES:
             async def forward_to_gemini():
                 nonlocal session_alive
                 last_frame_time = 0 # ⏱️ Tracker for frame rate limiting
-                frame_counter = 0 # ⏱️  Track frames for proactive scanning
+                last_heartbeat_time = time.time()
+				user_is_speaking = False          # 🗣️ Track if user is actively talking
                 
                 try:
                     initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me, and immediately look at my camera feed to tell me where I am.call check_past_history to recognoise the place/person")]
@@ -370,8 +371,14 @@ CRITICAL BEHAVIORAL RULES:
                         
                         try:
                             if data_type == "audio" and "audioBase64" in data:
+								audio_bytes = base64.b64decode(data["audioBase64"])
+                
+				                # 🛡️ DIAGNOSTIC CHECK: Prevent sending WebM/WAV headers and crashing the WebSocket
+				                if audio_bytes.startswith(b'RIFF') or audio_bytes.startswith(b'\x1aE\xdf\xa3'):
+				                    print("⚠️ FRONTEND ERROR: Audio contains WAV/WebM headers. Gemini strictly requires RAW PCM s16le 16000Hz. Skipping chunk to prevent 1007 crash.", flush=True)
+				                    continue
                                 await session.send_realtime_input(media=types.Blob(data=base64.b64decode(data["audioBase64"]), mime_type="audio/pcm;rate=16000"))
-                                frame_counter = 0
+                                
                             
                             elif data_type == "frame" and "frameBase64" in data:
                                 current_time = time.time()
@@ -382,23 +389,29 @@ CRITICAL BEHAVIORAL RULES:
                                     shared_context["latest_frame_bytes"] = frame_bytes
                                     await session.send_realtime_input(media=types.Blob(data=frame_bytes, mime_type="image/jpeg"))
 
-								    # 🚨 THE HEARTBEAT PROMPTER (PROACTIVE AI)
-                                    frame_counter += 1
-                                    if frame_counter % 10 == 0:  # Triggers roughly every 15 seconds
-                                        print("🔄 [SYSTEM] Sending silent heartbeat to force AI to evaluate surroundings.", flush=True)
-                                        hidden_prompt = "[SYSTEM HIDDEN PROMPT]: Look at the current camera feed. Has my location changed significantly since you last spoke? If YES, call check_past_history and talk to me. If NO, remain completely silent."
-                                        await session.send_client_content(
-                                            turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
-                                            turn_complete=True
-                                        )
+								    # Triggers only if the user is NOT speaking, AND 15 seconds have passed
+								    if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0):
+								        print("🔄 [SYSTEM] Sending silent heartbeat to force AI to evaluate surroundings.", flush=True)
+								        last_heartbeat_time = current_time # Reset timer
+									
+								        hidden_prompt = "[SYSTEM HIDDEN PROMPT]: Look at the current camera feed. Has my location changed significantly since you last spoke? If YES, call check_past_history and talk to me. If NO, remain completely silent."
+								        await session.send_client_content(
+								            turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
+								            turn_complete=True
+								        )
                             elif data_type == "speech_start":
+								user_is_speaking = True
                                 await session.send_client_content(turn_complete=False)
                             elif data_type == "end_of_turn":
+                                user_is_speaking = False
+                                last_heartbeat_time = time.time() # Reset heartbeat timer after speech ends
                                 await session.send_client_content(turn_complete=True)
                         except Exception as e:
                             if "closed" in str(e).lower() or "1011" in str(e):
                                 session_alive = False
                                 break
+                            else:
+                                print(f"⚠️ Warning in data processing loop: {e}", flush=True)	
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
