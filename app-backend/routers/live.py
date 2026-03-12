@@ -371,7 +371,7 @@ CRITICAL BEHAVIORAL RULES:
                         try:
                             if data_type == "audio" and "audioBase64" in data:
                                 await session.send_realtime_input(media=types.Blob(data=base64.b64decode(data["audioBase64"]), mime_type="audio/pcm;rate=16000"))
-								frame_counter = 0
+                                frame_counter = 0
                             
                             elif data_type == "frame" and "frameBase64" in data:
                                 current_time = time.time()
