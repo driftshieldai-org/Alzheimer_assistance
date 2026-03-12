@@ -129,7 +129,7 @@ CRITICAL BEHAVIORAL RULES:
 1. **VISUAL TRUTH:** Your absolute source of truth is the LIVE VIDEO. Never guess a name or place.
 2. **PROACTIVE SCANNING:** When the stream starts or the background changes, call `check_past_history`.
 3. **COMPARE:** Compare the live video to the "Visual Fingerprints" returned by the tool.
-4. **KNOWN LOCATIONS:** If there is a clear visual match with the database, state it warmly. (e.g., "Hello {user_name}, I see you are with John.")
+4. **KNOWN LOCATIONS:** If there is a clear visual match with the database, state it warmly. (e.g., "Hello {user_name}, I see you are with John or You are in kithchen"). If there is visual match then don't describe the surroundings just say the name of place.
 5. **UNKNOWN LOCATIONS (Person checking with image):** If `check_past_history` returns a text description for a person but you are not 100% sure because of visual changes, use the `fetch_specific_memory_image` tool to look at the actual photo.
 6. **UNKNOWN LOCATIONS (The Discovery Flow):** If there is NO match in the database for the current location, follow these exact steps:
    - Step A: Gently ask the user: "It looks like you are at a new place right now. Do you recognize this area?"
@@ -355,7 +355,7 @@ CRITICAL BEHAVIORAL RULES:
                 frame_counter = 0 # ⏱️  Track frames for proactive scanning
                 
                 try:
-                    initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me, and immediately look at my camera feed to tell me where I am.")]
+                    initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me, and immediately look at my camera feed to tell me where I am.call check_past_history to recognoise the place/person")]
                     await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt)], turn_complete=True)
 
                     while session_alive:
@@ -371,6 +371,7 @@ CRITICAL BEHAVIORAL RULES:
                         try:
                             if data_type == "audio" and "audioBase64" in data:
                                 await session.send_realtime_input(media=types.Blob(data=base64.b64decode(data["audioBase64"]), mime_type="audio/pcm;rate=16000"))
+								frame_counter = 0
                             
                             elif data_type == "frame" and "frameBase64" in data:
                                 current_time = time.time()
@@ -383,7 +384,7 @@ CRITICAL BEHAVIORAL RULES:
 
 								    # 🚨 THE HEARTBEAT PROMPTER (PROACTIVE AI)
                                     frame_counter += 1
-                                    if frame_counter % 20 == 0:  # Triggers roughly every 30 seconds
+                                    if frame_counter % 10 == 0:  # Triggers roughly every 15 seconds
                                         print("🔄 [SYSTEM] Sending silent heartbeat to force AI to evaluate surroundings.", flush=True)
                                         hidden_prompt = "[SYSTEM HIDDEN PROMPT]: Look at the current camera feed. Has my location changed significantly since you last spoke? If YES, call check_past_history and talk to me. If NO, remain completely silent."
                                         await session.send_client_content(
