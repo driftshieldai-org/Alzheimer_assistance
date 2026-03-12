@@ -371,12 +371,12 @@ CRITICAL BEHAVIORAL RULES:
                         
                         try:
                             if data_type == "audio" and "audioBase64" in data:
-				                audio_bytes = base64.b64decode(data["audioBase64"])
-                
-				                # 🛡️ DIAGNOSTIC CHECK: Prevent sending WebM/WAV headers and crashing the WebSocket
-				                if audio_bytes.startswith(b'RIFF') or audio_bytes.startswith(b'\x1aE\xdf\xa3'):
-				                    print("⚠️ FRONTEND ERROR: Audio contains WAV/WebM headers. Gemini strictly requires RAW PCM s16le 16000Hz. Skipping chunk to prevent 1007 crash.", flush=True)
-				                    continue
+                                audio_bytes = base64.b64decode(data["audioBase64"])
+
+                                # 🛡️ DIAGNOSTIC CHECK: Prevent sending WebM/WAV headers and crashing the WebSocket
+                                if audio_bytes.startswith(b'RIFF') or audio_bytes.startswith(b'\x1aE\xdf\xa3'):
+                                    print("⚠️ FRONTEND ERROR: Audio contains WAV/WebM headers. Gemini strictly requires RAW PCM s16le 16000Hz. Skipping chunk to prevent 1007 crash.", flush=True)
+                                    continue
                                 await session.send_realtime_input(media=types.Blob(data=base64.b64decode(data["audioBase64"]), mime_type="audio/pcm;rate=16000"))
                                 
                             
