@@ -389,16 +389,16 @@ CRITICAL BEHAVIORAL RULES:
                                     shared_context["latest_frame_bytes"] = frame_bytes
                                     await session.send_realtime_input(media=types.Blob(data=frame_bytes, mime_type="image/jpeg"))
 
-								    # Triggers only if the user is NOT speaking, AND 15 seconds have passed
-								    if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0):
-								        print("🔄 [SYSTEM] Sending silent heartbeat to force AI to evaluate surroundings.", flush=True)
-								        last_heartbeat_time = current_time # Reset timer
+                                    # Triggers only if the user is NOT speaking, AND 15 seconds have passed
+                                    if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0):
+                                        print("🔄 [SYSTEM] Sending silent heartbeat to force AI to evaluate surroundings.", flush=True)
+                                        last_heartbeat_time = current_time # Reset timer
 									
-								        hidden_prompt = "[SYSTEM HIDDEN PROMPT]: Look at the current camera feed. Has my location changed significantly since you last spoke? If YES, call check_past_history and talk to me. If NO, remain completely silent."
-								        await session.send_client_content(
-								            turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
-								            turn_complete=True
-								        )
+                                        hidden_prompt = "[SYSTEM HIDDEN PROMPT]: Look at the current camera feed. Has my location changed significantly since you last spoke? If YES, call check_past_history and talk to me. If NO, remain completely silent."
+                                        await session.send_client_content(
+                                            turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
+                                            turn_complete=True
+                                        )
                             elif data_type == "speech_start":
                                 user_is_speaking = True
                                 await session.send_client_content(turn_complete=False)
