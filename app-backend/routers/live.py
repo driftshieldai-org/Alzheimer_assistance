@@ -58,7 +58,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
   session_alive = True
   shared_context = {"latest_frame_bytes": None, "current_location": None, "last_distance": None}
-   
+  ai_last_spoke_time = 0 
+
   try:
     # 1️⃣ Validate Token & User Setup
     token = websocket.query_params.get("token")
@@ -163,9 +164,10 @@ CRITICAL BEHAVIORAL RULES:
   - if user don't recognise then inform them of the nearest known place (from the prompt data)"
   - If the prompt says the user is moving **CLOSER** to a known location, encourage them warmly.
   - If the prompt says the user is wandering **FURTHER AWAY** from a known location, you MUST warn them immediately.
-7. **SAVING MEMORIES:** Don't store photo until user asks you explicitly. Follow strict flow: Ask name -> Wait for answer -> State "I am saving this" -> Call `save_new_memory`.Don't store photo without user consent.
-8. **EMERGENCY:** If the user asks for help or is lost, immediately call `send_emergency_email`.
-9. **SUNDOWNING AWARENESS:** Pay attention to the Current Date & Time. If it is late at night (e.g., 10:00 PM to 5:00 AM) and the user seems confused, be extra soothing and proactively offer to call their caregiver.																																																					   
+8. **SILENCE IS GOLDEN:** If the system notification says the user is safe at a known place, DO NOT acknowledge the notification. REMAIN COMPLETELY SILENT unless the user speaks to you first. Do not say "You are at the same place".
+9. **SAVING MEMORIES:** Don't store photo until user asks you explicitly. Follow strict flow: Ask name -> Wait for answer -> State "I am saving this" -> Call `save_new_memory`.Don't store photo without user consent.
+10. **EMERGENCY:** If the user asks for help or is lost, immediately call `send_emergency_email`.
+11. **SUNDOWNING AWARENESS:** Pay attention to the Current Date & Time. If it is late at night (e.g., 10:00 PM to 5:00 AM) and the user seems confused, be extra soothing and proactively offer to call their caregiver.																																																					   
 """
  
     MODEL_ID = "gemini-live-2.5-flash-native-audio"  
@@ -184,7 +186,7 @@ CRITICAL BEHAVIORAL RULES:
       session_alive = True
 
       async def receive_from_gemini():
-        nonlocal session_alive
+        nonlocal session_alive, ai_last_spoke_time
         try:
           while session_alive:
             async for response in session.receive():
@@ -365,6 +367,7 @@ CRITICAL BEHAVIORAL RULES:
                        
                   if generated_text or generated_audio_base64:
                     try:
+                      ai_last_spoke_time = time.time() 
                       await websocket.send_json({
                         "type": "audioResponse",
                         "description": generated_text,
@@ -379,7 +382,7 @@ CRITICAL BEHAVIORAL RULES:
           session_alive = False
 
       async def forward_to_gemini():
-        nonlocal session_alive
+        nonlocal session_alive, ai_last_spoke_time
         last_frame_time = 0
         last_heartbeat_time = time.time()
         user_is_speaking = False
@@ -418,7 +421,7 @@ CRITICAL BEHAVIORAL RULES:
                   await session.send_realtime_input(media=types.Blob(data=frame_bytes, mime_type="image/jpeg"))
 
                   # 15s Location Validation & Heartbeat Warning logic
-                  if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0):
+                  if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0) and (current_time - ai_last_spoke_time >= 15.0):
                     last_heartbeat_time = current_time
                     
                     loc_prompt_addition = ""
@@ -449,7 +452,7 @@ CRITICAL BEHAVIORAL RULES:
                                elif min_dist < prev_dist - 5: # Heading back to safety
                                    loc_prompt_addition += f" The user is moving CLOSER to {nearest_name}. Encourage them that they are heading in the right direction."
 
-                    hidden_prompt = f"[SYSTEM HIDDEN PROMPT]: Has my location changed significantly?{loc_prompt_addition} Based on the camera and GPS, proactively speak to me if I am at an unknown place, if I am wandering, or if I need reassurance. If I am safe and stationary, remain silent."
+                    hidden_prompt = f"[SYSTEM BACKGROUND CONTEXT]: {loc_prompt_addition} \nCRITICAL INSTRUCTION: If the user is safe and stationary, you MUST NOT reply to this prompt. Output absolutely nothing. Only speak if they are actively wandering, lost, or in danger."
 																																																																																																																																																																																																
                     await session.send_client_content(
                       turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
