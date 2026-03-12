@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from google.cloud import firestore
@@ -11,6 +12,8 @@ class UserSignup(BaseModel):
     name: str
     userId: str
     password: str
+    emergencyEmail: Optional[str] = None  # Optional field
+    trackLocation: bool = False           # Defaults to False
 
 class UserLogin(BaseModel):
     userId: str
@@ -29,10 +32,13 @@ async def signup(user: UserSignup):
     
     hashed_pw = get_password_hash(user.password)
     
+    # Store all details including the two new fields
     user_ref.set({
         "name": user.name,
         "userId": normalized_id,
         "password": hashed_pw,
+        "emergencyEmail": user.emergencyEmail,
+        "trackLocation": user.trackLocation,
         "createdAt": firestore.SERVER_TIMESTAMP
     })
     
