@@ -25,6 +25,7 @@ export default function Login({ setCurrentScreen }) {
       if (response.ok) {
         localStorage.setItem('token', data.token);
         localStorage.setItem('userId', data.user.userId);
+        localStorage.setItem('trackLocation', data.user.trackLocation);
         setCurrentScreen('dashboard');
       } else {
         setLoginErrorMsg(data.message || 'Login failed.');
