@@ -353,7 +353,7 @@ CRITICAL BEHAVIORAL RULES:
                 nonlocal session_alive
                 last_frame_time = 0 # ⏱️ Tracker for frame rate limiting
                 last_heartbeat_time = time.time()
-				user_is_speaking = False          # 🗣️ Track if user is actively talking
+                user_is_speaking = False          # 🗣️ Track if user is actively talking
                 
                 try:
                     initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me, and immediately look at my camera feed to tell me where I am.call check_past_history to recognoise the place/person")]
@@ -400,7 +400,7 @@ CRITICAL BEHAVIORAL RULES:
 								            turn_complete=True
 								        )
                             elif data_type == "speech_start":
-								user_is_speaking = True
+                                user_is_speaking = True
                                 await session.send_client_content(turn_complete=False)
                             elif data_type == "end_of_turn":
                                 user_is_speaking = False
