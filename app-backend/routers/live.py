@@ -63,9 +63,6 @@ async def websocket_endpoint(websocket: WebSocket):
     # 1️⃣ Validate Token & User Setup
     token = websocket.query_params.get("token")
     try:
-									   
-												   
-			
       payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
       user_id = payload.get("userId", "Unknown") 
     except Exception as e:
@@ -167,12 +164,6 @@ CRITICAL BEHAVIORAL RULES:
   - If the prompt says the user is moving **CLOSER** to a known location, encourage them warmly.
   - If the prompt says the user is wandering **FURTHER AWAY** from a known location, you MUST warn them immediately.
 7. **SAVING MEMORIES:** Don't store photo until user asks you explicitly. Follow strict flow: Ask name -> Wait for answer -> State "I am saving this" -> Call `save_new_memory`.Don't store photo without user consent.
-																					 
-																																										  
-																							  
-												 
-																									 
-											
 8. **EMERGENCY:** If the user asks for help or is lost, immediately call `send_emergency_email`.
 9. **SUNDOWNING AWARENESS:** Pay attention to the Current Date & Time. If it is late at night (e.g., 10:00 PM to 5:00 AM) and the user seems confused, be extra soothing and proactively offer to call their caregiver.																																																					   
 """
@@ -210,14 +201,8 @@ CRITICAL BEHAVIORAL RULES:
                   if fc.name == "check_past_history":
                     try:
                       # We utilize the cache we built at connection startup for speed
-										
-													   
-																																																																																																					 
-										
-											
 																																																				  
                       memories_context = [f"Label: {d.get('description', '')}\nFilename: {d.get('filename', '')}\nDetails: {d.get('geminiDescription', '')}" for d in saved_photos_cache]
-											
 																																			 
                       if memories_context:
                         tool_result = "DATABASE KNOWLEDGE BASE:\n" + "\n---\n".join(memories_context) + "\n\nCRITICAL INSTRUCTION: ONLY declare a match if the LIVE VIDEO perfectly aligns with the 'Details' above."
@@ -297,29 +282,8 @@ CRITICAL BEHAVIORAL RULES:
                         tool_result = f"Successfully saved memory."
                       except Exception as e:
                         tool_result = f"Failed to save: {e}"
-																																																																									  
-										
-																														  
 
                     function_responses.append(types.Part.from_function_response(name=fc.name, response={"result": tool_result}))
-												
-																									  
-																															 
-																										   
-												
-																	
-																					  
-																							   
-																									
-																					   
-																							  
-												 
-																									   
-												
-																		 
-																			   
-																			  
-																													 
 
                   elif fc.name == "send_emergency_email":
                     if not emergency_email:
@@ -355,64 +319,18 @@ CRITICAL BEHAVIORAL RULES:
                         loc_link = ""
                         if loc_dict:
                             loc_link = f"\n\nLive GPS Location Link:\nhttps://maps.google.com/?q={loc_dict['lat']},{loc_dict['lng']}"
-																																																																																																																															  
-										
-																																																																			
-														  
-																																																									
-										  
 
                         text_content = f"EMERGENCY ALERT FOR {user_name}!\n\nAI Summary of Situation:\n{situation_summary}{loc_link}\n\nPlease check on them immediately."
                         message.attach(MIMEText(text_content, 'plain'))
-													  
-																																																																																						
-										 
-							
-																 
-													   
-																		
-								
-															  
-																														 
-																 
-											
-								
-															 
-													   
-															   
-									
-																																			 
-													 
-																																																									
-																	   
-															
-																																																																																							   
-											
-																				
-											
-																															 
-																		
-																			  
-																					 
-											  
-																														  
-
                         if image_bytes:
                           image_part = MIMEImage(image_bytes, name="current_view.jpg")
                           message.attach(image_part)
-										 
-										 
-
                         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
                         gmail_service.users().messages().send(userId='me', body={'raw': raw_message}).execute()
                          
                         return "Emergency email with photo and location sent successfully to the caregiver."
                       except Exception as e:
                         return f"Failed to send email. Error: {str(e)}"
-				
-					
-																																																																																							 
-																																																																	  
 
                     email_result = await asyncio.to_thread(send_email_task, frame_to_send, current_loc)
                      
@@ -530,41 +448,14 @@ CRITICAL BEHAVIORAL RULES:
                                    loc_prompt_addition += f" WARNING: The user is wandering FURTHER AWAY from {nearest_name}. You MUST verbally warn them that they are moving away from known areas."
                                elif min_dist < prev_dist - 5: # Heading back to safety
                                    loc_prompt_addition += f" The user is moving CLOSER to {nearest_name}. Encourage them that they are heading in the right direction."
-																																
-																		 
-																  
-																													
-																																																		
-																																																																										  
 
                     hidden_prompt = f"[SYSTEM HIDDEN PROMPT]: Has my location changed significantly?{loc_prompt_addition} Based on the camera and GPS, proactively speak to me if I am at an unknown place, if I am wandering, or if I need reassurance. If I am safe and stationary, remain silent."
-                    
-																																																																														 
-																																																			  
-		 
 																																																																																																																																																																																																
                     await session.send_client_content(
                       turns=[types.Content(role="user", parts=[types.Part(text=hidden_prompt)])],
                       turn_complete=True
                     )
 															 
-													   
-																																						
-															
-														
-																																																	  
-																																					  
-											  
-																			  
-													 
-									 
-								 
-																																  
-											  
-						
-									  
-										 
-
               elif data_type == "speech_start":
                 user_is_speaking = True
                 await session.send_client_content(turn_complete=False)
@@ -583,8 +474,6 @@ CRITICAL BEHAVIORAL RULES:
 
       receive_task = asyncio.create_task(receive_from_gemini())
       forward_task = asyncio.create_task(forward_to_gemini())
-											  
-																  
 
       done, pending = await asyncio.wait([receive_task, forward_task], return_when=asyncio.FIRST_COMPLETED)
       for task in pending: task.cancel()
