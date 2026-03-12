@@ -66,7 +66,7 @@ async def login(user: UserLogin):
     if not verify_password(user.password, user_data.get("password")):
         raise HTTPException(status_code=400, detail="Invalid credentials")
     
-    token = create_access_token({"userId": normalized_id, "name": user_data.get("name")})
+    token = create_access_token({"userId": normalized_id, "name": user_data.get("name"), "trackLocation": user_data.get("trackLocation", False)})
     
     return {
         "message": "Login successful",
