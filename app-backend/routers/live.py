@@ -371,7 +371,7 @@ CRITICAL BEHAVIORAL RULES:
                         
                         try:
                             if data_type == "audio" and "audioBase64" in data:
-								audio_bytes = base64.b64decode(data["audioBase64"])
+				                audio_bytes = base64.b64decode(data["audioBase64"])
                 
 				                # 🛡️ DIAGNOSTIC CHECK: Prevent sending WebM/WAV headers and crashing the WebSocket
 				                if audio_bytes.startswith(b'RIFF') or audio_bytes.startswith(b'\x1aE\xdf\xa3'):
