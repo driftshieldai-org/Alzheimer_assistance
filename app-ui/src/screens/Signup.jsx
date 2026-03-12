@@ -6,6 +6,11 @@ export default function Signup({ setCurrentScreen }) {
   const [signupUserId, setSignupUserId] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  
+  // New fields state
+  const [emergencyEmail, setEmergencyEmail] = useState('');
+  const [trackLocation, setTrackLocation] = useState('no'); // default to 'no'
+
   const [signupErrorMsg, setSignupErrorMsg] = useState('');
   const [isSignupLoading, setIsSignupLoading] = useState(false);
 
@@ -21,12 +26,19 @@ export default function Signup({ setCurrentScreen }) {
     return regex.test(pass);
   };
 
+  const validateEmail = (email) => {
+    // Basic email validation regex
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return regex.test(email);
+  };
+
   const handleSignup = async () => {
     setIsSignupLoading(true);
     setSignupErrorMsg('');
     
+    // Check required fields
     if (!name || !signupUserId || !signupPassword || !confirmPassword) {
-      setSignupErrorMsg('Please fill out all fields.');
+      setSignupErrorMsg('Please fill out all required fields.');
       setIsSignupLoading(false);
       return;
     }
@@ -49,11 +61,27 @@ export default function Signup({ setCurrentScreen }) {
       return;
     }
 
+    // Validate email ONLY if it was provided
+    if (emergencyEmail && !validateEmail(emergencyEmail)) {
+      setSignupErrorMsg('Please enter a valid emergency email address.');
+      setIsSignupLoading(false);
+      return;
+    }
+
+    // Convert trackLocation "yes"/"no" string to boolean for the database
+    const isLocationTracked = trackLocation === 'yes';
+
     try {
       const response = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, userId: signupUserId, password: signupPassword })
+        body: JSON.stringify({ 
+          name, 
+          userId: signupUserId, 
+          password: signupPassword,
+          emergencyEmail: emergencyEmail || null, 
+          trackLocation: isLocationTracked
+        })
       });
       const data = await response.json();
       if (response.ok) {
@@ -130,6 +158,34 @@ export default function Signup({ setCurrentScreen }) {
             className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
           />
         </div>
+
+        {/* --- NEW FIELDS START --- */}
+        <div>
+          <label className="text-3xl font-bold text-blue-900 mb-3 block">Emergency Email (Optional)</label>
+          <input 
+            type="email" 
+            value={emergencyEmail}
+            onChange={(e) => setEmergencyEmail(e.target.value)}
+            placeholder="e.g. parent@example.com"
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900 placeholder:text-slate-400" 
+          />
+        </div>
+
+        <div>
+          <label className="text-3xl font-bold text-blue-900 mb-3 block">Enable Location Tracking?</label>
+          <select 
+            value={trackLocation}
+            onChange={(e) => setTrackLocation(e.target.value)}
+            className="w-full text-3xl p-6 border-4 border-blue-300 rounded-2xl focus:border-blue-800 outline-none bg-white text-blue-900"
+          >
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+          <p className="text-lg text-blue-700 mt-2 font-medium">
+            Allows the app to track your current location.
+          </p>
+        </div>
+        {/* --- NEW FIELDS END --- */}
         
         <button 
           onClick={handleSignup}
