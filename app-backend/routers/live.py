@@ -149,8 +149,8 @@ User name: {user_name}
 Current Date & Time: {current_time_str}
 
 CRITICAL BEHAVIORAL RULES:
-1. **VISUAL TRUTH:** Your absolute source of truth is the LIVE VIDEO. Never guess a name or place.
-2. **PROACTIVE SCANNING:** When the stream starts or the background changes, call `check_past_history`.
+1. **VISUAL TRUTH:** Your absolute source of truth is the LIVE VIDEO. Never guess a name or place. 
+2. **PROACTIVE SCANNING:** When the stream starts after few second or the background changes, call `check_past_history`.
 3. **COMPARE:** Compare the live video to the "Visual Fingerprints" returned by the tool.
 4. **KNOWN LOCATIONS:** If there is a clear visual match with the database, state it warmly. (e.g., "Hello {user_name}, you are in the kitchen"). Do not over-describe surroundings if there is a match.
 5. **UNKNOWN LOCATIONS (Person checking with image):** If `check_past_history` returns a text description for a person but you are not 100% sure because of visual changes, use the `fetch_specific_memory_image` tool to look at the actual photo.
@@ -414,7 +414,7 @@ CRITICAL BEHAVIORAL RULES:
                  
               elif data_type == "frame" and "frameBase64" in data:
                 current_time = time.time()
-                if current_time - last_frame_time >= 1.5:
+                if current_time - last_frame_time >= 1:
                   last_frame_time = current_time
                   frame_bytes = base64.b64decode(data["frameBase64"])
                   shared_context["latest_frame_bytes"] = frame_bytes
