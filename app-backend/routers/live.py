@@ -150,7 +150,7 @@ Current Date & Time: {current_time_str}
 
 CRITICAL BEHAVIORAL RULES:
 1. **VISUAL TRUTH:** Your absolute source of truth is the LIVE VIDEO. Never guess a name or place. 
-2. **PROACTIVE SCANNING:** When the stream starts(wait for few sec for first frame to come) or the background changes, call `check_past_history`.
+2. **PROACTIVE SCANNING:** After you greet the user when the stream first starts, or when the background in the video feed changes significantly, call the `check_past_history` tool to understand the context.
 3. **COMPARE:** Compare the live video to the "Visual Fingerprints" returned by the tool.
 4. **KNOWN LOCATIONS:** If there is a clear visual match with the database, state it warmly.Say the name of place stored in database. (e.g., "Hello {user_name}, you are in the kitchen"). Do not over-describe surroundings if there is a match.
 5. **UNKNOWN LOCATIONS (Person checking with image):** If `check_past_history` returns a text description for a person but you are not 100% sure because of visual changes, use the `fetch_specific_memory_image` tool to look at the actual photo.
@@ -393,11 +393,12 @@ CRITICAL BEHAVIORAL RULES:
         last_frame_time = 0
         last_heartbeat_time = time.time()
         user_is_speaking = False
+        initial_greeting_sent = False
          
         try:
-          initial_prompt = [types.Part(text=f"Hello! I am {user_name}. Please greet me.")]
-          await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt)], turn_complete=True)
-
+          # We will now send the initial prompt only AFTER the first frame is sent
+          # to ensure the model has visual context before analyzing.
+          
           while session_alive:
             try:
               data = await websocket.receive_json()
@@ -426,6 +427,14 @@ CRITICAL BEHAVIORAL RULES:
                   frame_bytes = base64.b64decode(data["frameBase64"])
                   shared_context["latest_frame_bytes"] = frame_bytes
                   await session.send_realtime_input(media=types.Blob(data=frame_bytes, mime_type="image/jpeg"))
+
+                  # Send the initial greeting only once, after the first frame is sent.
+                  if not initial_greeting_sent:
+                    initial_greeting_sent = True
+                    # This prompt is now sent *after* the first frame, ensuring the model has visual context.
+                    initial_prompt = [types.Part(text=f"The stream has just started. Please greet the user, {user_name}.")]
+                    await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt)], turn_complete=True)
+                    print("✅ Sent initial greeting after first frame was sent.", flush=True)
 
                   # 15s Location Validation & Heartbeat Warning logic
                   if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0) and (current_time - ai_last_spoke_time >= 15.0):
