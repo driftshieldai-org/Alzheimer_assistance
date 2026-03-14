@@ -59,8 +59,14 @@ The backend service is a FastAPI application that handles photo uploads, AI proc
     -   `GCP_PROJECT_ID`: Your Google Cloud Project ID.
     -   `GCP_REGION`: The Google Cloud region for services (e.g., `us-central1`).
     -   `GCS_BUCKET_NAME`: The name of the Google Cloud Storage bucket for photo uploads.
+    -   `JWT_SECRET`: A secret key for signing authentication tokens (e.g., `your-super-secret-key`).
+    -   `GMAIL_SECRET_ID`: (Optional) The full resource name of the Secret Manager secret containing Gmail OAuth credentials. Required for the emergency email feature.
 
 3.  **Run the server**:
+    Ensure you have authenticated with Google Cloud:
+    ```bash
+    gcloud auth application-default login
+    ```
     ```bash
     cd app-backend
     uvicorn main:app --reload
@@ -82,6 +88,44 @@ The frontend is a modern JavaScript application that provides the user interface
     npm start
     ```
     The application will be available at `http://localhost:3000`.
+
+## Reproducible Testing Instructions
+
+To test the full functionality of the application, follow these steps after completing the local development setup above.
+
+### 1. Testing Memory Curation (Photo Upload)
+
+This tests the ability for a caregiver to build the AI's knowledge base.
+
+1.  **Navigate to the App:** Open `http://localhost:3000` in your browser.
+2.  **Create an Account:** Sign up for a new account. On the registration page, you can provide an emergency contact email.
+3.  **Go to Store Photo:** From the dashboard, select "Store a Photo".
+4.  **Upload a Photo:**
+    *   Choose to upload a file or take a new photo with your webcam.
+    *   Provide a description for the photo (e.g., "This is the kitchen"). You can type or use the "Hold mic to speak" button.
+    *   Select a date for the photo.
+    *   (Optional) Toggle "Include Location" to ON to save your current GPS coordinates with the memory.
+5.  **Save the Memory:** Click the "Save Photo" button.
+6.  **Verification:**
+    *   You should see a success message: "Information has been stored safely!".
+    *   (Optional) You can verify in the Google Cloud Console that a new image has been added to your GCS bucket and a corresponding document has been created in your Firestore database under `users/{your_user_id}/photos`.
+
+### 2. Testing the Live Guardian Agent
+
+This tests the core real-time AI assistance feature.
+
+1.  **Navigate to Live Guardian:** From the dashboard, select "Live Guardian".
+2.  **Grant Permissions:** Your browser will ask for permission to use your camera and microphone. Please allow access.
+3.  **Start the Session:** The live stream will begin automatically. The AI, "GuardianMind," will greet you.
+4.  **Test Scene Recognition:**
+    *   Point your camera at the location you just saved (e.g., your kitchen).
+    *   The AI should proactively recognize the scene and say something like, "Hello [Your Name], you are in the kitchen."
+5.  **Test Conversation:** Speak to the AI. It should respond to your questions and comments.
+6.  **Test Emergency Function:**
+    *   Say "I need help" or "I'm lost."
+    *   The AI should recognize the distress call, respond with "Help is on the way," and then attempt to comfort you.
+7.  **Verification:**
+    *   If you configured an emergency email during registration and set up the `GMAIL_SECRET_ID`, an alert email should be sent to the specified address. The email will contain a summary of the situation, a snapshot from the camera, and a Google Maps link to your location.
 
 ## Backend API
 
