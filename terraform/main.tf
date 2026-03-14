@@ -41,8 +41,8 @@ resource "google_project_iam_member" "backend_sa_roles" {
 
 
 # --- NEW: Cloud Storage Bucket for User Photos ---
-resource "google_storage_bucket" "memorymate_photos" {
-  name          = "memorymate-user-photos-${var.project_id}" # Unique bucket name
+resource "google_storage_bucket" "guardianmind_photos" {
+  name          = "guardianmind-user-photos-${var.project_id}" # Unique bucket name
   location      = var.region
   project       = var.project_id
   uniform_bucket_level_access = true # Recommended for security
