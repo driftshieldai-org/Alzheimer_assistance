@@ -18,20 +18,6 @@ export default function StorePhotos({ setCurrentScreen }) {
 
  // LOCATION STATE (Reads default from login localStorage)
  const [includeLocation, setIncludeLocation] = useState(false);
-											
-									 
-																
-  
-				   
-			  
-					  
-								
-							  
-									  
-			   
-	 
-									 
-									  
 
  const fileInputRef = useRef(null);
  const webcamRefCapture = useRef(null); 
@@ -60,18 +46,12 @@ export default function StorePhotos({ setCurrentScreen }) {
   if (e) e.preventDefault();
   if (isListening) return; 
 											   
-	
-								  
-									  
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
    alert("Speech recognition is not supported in this browser. Please type instead.");
    return;
   }
-																			  
-																			   
-	  
 
   originalTextRef.current = photoDescription;
    
@@ -99,13 +79,7 @@ export default function StorePhotos({ setCurrentScreen }) {
 	 
   };
 
-  recognition.onend = () => {
-							  
-													  
-		   
-											
-					  
-	 
+  recognition.onend = () => {	 
    setIsListening(false);
   };
 
@@ -129,14 +103,6 @@ export default function StorePhotos({ setCurrentScreen }) {
   setIsListening(false);
  };
 	   
-	 
-	 
-														  
-																			 
-								 
-			 
-	 
-
 												
  const uploadDataToServer = async (token, photoToSend, lat = null, lng = null) => {
   const formData = new FormData();
@@ -171,19 +137,6 @@ export default function StorePhotos({ setCurrentScreen }) {
 
  const handlePhotoUpload = async (e) => {
   e.preventDefault();
-					   
-														
-					  
-		 
-						
-							 
-			  
-										   
-																 
-	   
-				   
-																
-			   
   setIsPhotoUploading(true);
   setPhotoUploadErrorMsg('');
 	
@@ -212,13 +165,7 @@ export default function StorePhotos({ setCurrentScreen }) {
    setPhotoUploadErrorMsg('You must be logged in.');
    setCurrentScreen('login');
    return;
-																
-		
-								 
-																																			 
   }
-				
-		  
 
   // Get GPS Coordinates if toggle is ON
   if (includeLocation) {
@@ -250,13 +197,6 @@ export default function StorePhotos({ setCurrentScreen }) {
   setPhotoFile(null); 
   setPhotoUploadErrorMsg('');
  }, [webcamRefCapture]);
-					   
-																																																															
-															   
-					   
-				  
-				
-		  
 
  return (
   <div className="flex flex-col items-center min-h-screen p-6 pt-10 animate-in fade-in relative">
@@ -267,9 +207,6 @@ export default function StorePhotos({ setCurrentScreen }) {
     {photoUploadErrorMsg && (
      <div className="bg-red-100 text-red-900 p-6 rounded-2xl text-2xl font-bold border-4 border-red-300 text-center animate-in fade-in">
       {photoUploadErrorMsg}
-																																																																																									
-																		
-					   
      </div>
 				
     )}
@@ -303,12 +240,7 @@ export default function StorePhotos({ setCurrentScreen }) {
 
     {capturedImageSrc && (
      <div className="bg-slate-100 rounded-3xl p-4 flex flex-col items-center justify-center border-8 border-blue-500 shadow-2xl space-y-6">
-				 
-																																		
-														  
       <h3 className="text-3xl font-bold text-blue-900 mt-2">Captured Photo Preview:</h3>
-					  
-										
       <img src={capturedImageSrc} alt="Captured" className="rounded-xl max-w-full h-auto max-h-96 object-contain border-4 border-blue-300" />
       <div className="flex w-full justify-around space-x-4">
        <button onClick={() => setCapturedImageSrc(null)} className="flex-1 bg-orange-500 text-white text-3xl font-bold py-6 rounded-2xl flex items-center justify-center hover:bg-orange-600 transition">
@@ -319,19 +251,6 @@ export default function StorePhotos({ setCurrentScreen }) {
         {isPhotoUploading ? 'Uploading...' : 'Use & Save Photo'}
        </button>
       </div>
-											
-											   
-												
-											 
-																																																									  
-				 
-								   
-						 
-					
-				  
-				 
-																																  
-																																																																															  
      </div>
 			 
     )}
