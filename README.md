@@ -1,22 +1,24 @@
-# Alzheimer's Assistance Application
+# GuardianMind: AI Companion for Alzheimer's Assistance
 
-This project is a web application designed to assist individuals with Alzheimer's and their caregivers. It allows users to upload photos of people, places, or objects and leverages Google's Gemini AI to generate rich, detailed descriptions. These descriptions can later be used by an AI to recognize these entities in a live context, providing helpful reminders and information.
+GuardianMind is an award-winning web application that acts as a live AI guardian for individuals with Alzheimer's or Elderly people. It uses a real-time, multimodal AI agent powered by the Gemini Live API to provide contextual reminders, identify familiar faces and places, and ensure user safety. By combining a persistent memory store with a live video and audio stream, GuardianMind offers peace of mind to both users and their caregivers.
+
 
 ## Features
 
--   **Secure User Authentication**: Ensures that personal photos and data are private.
--   **Photo Uploads**: Users can upload images with a short description, date, and optional geographic location.
--   **AI-Powered Descriptions**: Each uploaded image is analyzed by the Google Gemini Vision model to create a detailed visual description, focusing on permanent features for better recognition.
--   **Secure Cloud Storage**: Photos are stored in a Google Cloud Storage bucket, and metadata is saved in a Google Cloud Firestore database.
--   **Automated CI/CD**: The entire application infrastructure and deployment is automated using Terraform and GitHub Actions.
+-   **Live Guardian Agent**: A real-time, conversational AI that processes live video and audio to provide proactive assistance, identify objects from the user's past, and detect signs of distress or wandering.
+-   **Personalized Memory Bank**: Caregivers can upload photos of people, places, and objects to build a personalized knowledge base for the AI.
+-   **AI-Powered Visual Fingerprints**: Each uploaded photo is analyzed by Gemini to create detailed descriptions, focusing on permanent features for robust, long-term recognition.
+-   **Proactive Safety Alerts**: The system uses GPS data to give the AI situational awareness, allowing it to intelligently detect if a user is lost and automatically alert caregivers via email.
+-   **Secure & Scalable Cloud Architecture**: All data is stored securely in Google Cloud, with a fully automated CI/CD pipeline for robust, production-grade deployment.
 
 ## Tech Stack
 
 -   **Frontend (`app-ui`)**: A web-based user interface (e.g., React, Vue, or Angular).
 -   **Backend (`app-backend`)**: A Python-based API built with FastAPI.
+-   **Live Agent**: Real-time audio/video processing and interaction via WebSockets.
 -   **Database**: Google Cloud Firestore for storing photo metadata and user information.
 -   **File Storage**: Google Cloud Storage for securely storing uploaded images.
--   **AI/ML**: Google Gemini API for generating visual descriptions.
+-   **AI/ML**: Google Gemini Live Connect API for the real-time agent and Gemini Vision API for memory creation.
 -   **Infrastructure as Code**: Terraform for provisioning and managing all Google Cloud resources.
 -   **CI/CD**: GitHub Actions for continuous integration and deployment.
 
