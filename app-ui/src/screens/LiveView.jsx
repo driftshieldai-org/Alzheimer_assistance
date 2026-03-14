@@ -126,7 +126,7 @@ export default function LiveView({ setCurrentScreen }) {
 	  
 
   ws.onopen = () => {
-   console.log("🟢 Connected to MemoryMate!");
+   console.log("🟢 Connected to GuardianMind!");
    reconnectDelayRef.current = 1000; 
    setSystemMessage(''); 
    startMicCapture();

@@ -7,7 +7,7 @@ export default function Home({ setCurrentScreen }) {
       <div className="flex flex-col items-center mb-16">
         <Brain size={120} className="text-blue-800 mb-6" />
         <h1 className="text-6xl font-extrabold text-blue-900 tracking-tight text-center">
-          MemoryMate
+          GuardianMind
         </h1>
       </div>
       <div className="w-full max-w-xl flex flex-col space-y-8">

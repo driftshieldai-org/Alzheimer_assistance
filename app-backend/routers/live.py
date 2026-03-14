@@ -143,7 +143,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 		
     # 3️⃣ Highly Advanced System Instruction
-    system_instruction = f"""You are MemoryMate, a proactive and caring AI guardian for a user with memory loss.
+    system_instruction = f"""You are GuardianMind, a proactive and caring AI guardian for a user with memory loss.
 
 User name: {user_name}
 Current Date & Time: {current_time_str}
@@ -315,7 +315,7 @@ CRITICAL BEHAVIORAL RULES:
                         message = MIMEMultipart()
                         message['to'] = emergency_email
                         message['from'] = SENDER_EMAIL
-                        message['subject'] = f"🚨 URGENT: MemoryMate Alert for {user_name}"
+                        message['subject'] = f"🚨 URGENT: GuardianMind Alert for {user_name}"
 
                         # Inject Location Link if available
                         loc_link = ""

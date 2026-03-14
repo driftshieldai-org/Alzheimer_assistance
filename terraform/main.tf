@@ -1,3 +1,17 @@
+resource "google_project_service" "gcp_services" {
+  for_each = toset(["artifactregistry.googleapis.com",
+              "storage.googleapis.com",
+              "bigquery.googleapis.com",
+              "iam.googleapis.com",
+              "run.googleapis.com",
+              "cloudbuild.googleapis.com",
+              "secretmanager.googleapis.com"])
+  project = var.project_id
+  service = each.key
+  disable_on_destroy         = false
+  disable_dependent_services = false
+}
+
 resource "google_project_service" "firestore_api" {
   project = var.project_id
   service = "firestore.googleapis.com"
@@ -33,7 +47,7 @@ resource "google_service_account" "backend_gcp_sa" {
 }
 
 resource "google_project_iam_member" "backend_sa_roles" {
-  for_each = toset(["roles/datastore.user"])
+  for_each = toset(["roles/datastore.user","roles/storage.objectAdmin","roles/aiplatform.user","roles/secretmanager.secretAccessor"])
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${google_service_account.backend_gcp_sa.email}"
@@ -41,8 +55,8 @@ resource "google_project_iam_member" "backend_sa_roles" {
 
 
 # --- NEW: Cloud Storage Bucket for User Photos ---
-resource "google_storage_bucket" "memorymate_photos" {
-  name          = "memorymate-user-photos-${var.project_id}" # Unique bucket name
+resource "google_storage_bucket" "guardianmind_photos" {
+  name          = "guardianmind-user-photos-${var.project_id}" # Unique bucket name
   location      = var.region
   project       = var.project_id
   uniform_bucket_level_access = true # Recommended for security

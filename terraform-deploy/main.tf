@@ -20,7 +20,7 @@ resource "google_cloud_run_v2_service" "alzheimer-ui" {
 
       env {
         name  = "GCS_BUCKET_NAME"
-        value = "memorymate-user-photos-${var.project_id}"
+        value = "guardianmind-user-photos-${var.project_id}"
       }
 
       resources {
@@ -68,7 +68,7 @@ resource "google_cloud_run_v2_service" "backend" {
 
       env {
           name  = "GCS_BUCKET_NAME"
-          value = "memorymate-user-photos-${var.project_id}"
+          value = "guardianmind-user-photos-${var.project_id}"
         }
         env {
           name  = "GCP_PROJECT_ID"
