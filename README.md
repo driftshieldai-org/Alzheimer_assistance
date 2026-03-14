@@ -1,6 +1,6 @@
 # GuardianMind: AI Companion for Alzheimer's Assistance
 
-GuardianMind is an award-winning web application that acts as a live AI guardian for individuals with Alzheimer's or Elderly people. It uses a real-time, multimodal AI agent powered by the Gemini Live API to provide contextual reminders, identify familiar faces and places, and ensure user safety. By combining a persistent memory store with a live video and audio stream, GuardianMind offers peace of mind to both users and their caregivers.
+GuardianMind is an web application that acts as a live AI guardian for individuals with Alzheimer's or Elderly people. It uses a real-time, multimodal AI agent powered by the Gemini Live API to provide contextual reminders, identify familiar faces and places, and ensure user safety. By combining a persistent memory store with a live video and audio stream, GuardianMind offers peace of mind to both users and their caregivers.
 
 
 ## Features
