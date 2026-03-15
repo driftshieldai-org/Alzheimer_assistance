@@ -430,11 +430,21 @@ CRITICAL BEHAVIORAL RULES:
 
                   # Send the initial greeting only once, after the first frame is sent.
                   if not initial_greeting_sent:
-                    initial_greeting_sent = True
-                    # This prompt is now sent *after* the first frame, ensuring the model has visual context.
-                    initial_prompt = [types.Part(text=f"The stream has just started. Please greet the user, {user_name}.Tell the user that you are there to help.")]
-                    await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt)], turn_complete=True)
-                    print("✅ Sent initial greeting after first frame was sent.", flush=True)
+                    try:					  
+                        initial_prompt_parts = [
+                            types.Part.from_bytes(data=frame_bytes, mime_type="image/jpeg"),
+                            types.Part(text=f"The stream has just started with this first frame. Please greet the user, {user_name}.")
+                        ]
+                        await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt_parts)], turn_complete=True)
+                        print("✅ Sent initial greeting WITH first frame.", flush=True)  
+                        initial_greeting_sent = True  
+                    except Exception as e:
+                        print(f"Error in sending frame with initial greeting:{e}", flush=True)
+                        initial_greeting_sent = True
+                        # This prompt is now sent *after* the first frame, ensuring the model has visual context.
+                        initial_prompt = [types.Part(text=f"The stream has just started. Please greet the user, {user_name}.")]
+                        await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt)], turn_complete=True)
+                        print("✅ Sent initial greeting after first frame was sent.", flush=True)
 
                   # 15s Location Validation & Heartbeat Warning logic
                   if not user_is_speaking and (current_time - last_heartbeat_time >= 15.0) and (current_time - ai_last_spoke_time >= 15.0):
