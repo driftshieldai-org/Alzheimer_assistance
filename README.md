@@ -45,52 +45,29 @@ To work with the project locally, you will need:
 -   Node.js (for the UI)
 -   Python (for the backend)
 
-### Backend (`app-backend`)
-
-The backend service is a FastAPI application that handles photo uploads, AI processing, and database interactions.
-
-1.  **Install dependencies**:
-    ```bash
-    pip install -r app-backend/requirements.txt
-    ```
-
-2.  **Set Environment Variables**:
-    Create a `.env` file in the `app-backend` directory or export the following variables:
-    -   `GCP_PROJECT_ID`: Your Google Cloud Project ID.
-    -   `GCP_REGION`: The Google Cloud region for services (e.g., `us-central1`).
-    -   `GCS_BUCKET_NAME`: The name of the Google Cloud Storage bucket for photo uploads.
-    -   `JWT_SECRET`: A secret key for signing authentication tokens (e.g., `your-super-secret-key`).
-    -   `GMAIL_SECRET_ID`: (Optional) The full resource name of the Secret Manager secret containing Gmail OAuth credentials. Required for the emergency email feature.
-
-3.  **Run the server**:
-    Ensure you have authenticated with Google Cloud:
-    ```bash
-    gcloud auth application-default login
-    ```
-    ```bash
-    cd app-backend
-    uvicorn main:app --reload
-    ```
-    The server will be available at `http://127.0.0.1:8000`.
-
-### Frontend (`app-ui`)
-
-The frontend is a modern JavaScript application that provides the user interface.
-
-1.  **Install dependencies**:
-    ```bash
-    cd app-ui
-    npm install
-    ```
-
-2.  **Run the development server**:
-    ```bash
-    npm start
-    ```
-    The application will be available at `http://localhost:3000`.
-
 ## Reproducible Testing Instructions
 
+### 1. Clone the repository
+git clone https://github.com/driftshieldai-org/Alzheimer_assistance.git  
+cd Alzheimer_assistance
+
+### 2. Install backend dependencies
+pip install -r requirements.txt
+
+### 3. Configure environment variables
+Create a `.env` file with the following:
+GEMINI_API_KEY=your_gemini_api_key  
+GOOGLE_CLOUD_PROJECT=your_project_id
+
+### 4. Start the backend server
+uvicorn app.main:app --reload
+
+### 5. Start the frontend
+cd app-ui  
+npm install  
+npm run dev
+
+### 6. Test GuardianMind
 To test the full functionality of the application, follow these steps after completing the local development setup above.
 
 ### 1. Testing Memory Curation (Photo Upload)
@@ -114,7 +91,7 @@ This tests the ability for a caregiver to build the AI's knowledge base.
 
 This tests the core real-time AI assistance feature.
 
-1.  **Navigate to Live Guardian:** From the dashboard, select "Live Guardian".
+1.  **Navigate to Live UI:** From the dashboard, select "Understand the place live".
 2.  **Grant Permissions:** Your browser will ask for permission to use your camera and microphone. Please allow access.
 3.  **Start the Session:** The live stream will begin automatically. The AI, "GuardianMind," will greet you.
 4.  **Test Scene Recognition:**
