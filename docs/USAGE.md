@@ -16,16 +16,16 @@ python main.py
 
 # Example Commands
 
-Reminder creation:
+Recognise photo:
 
 ```
-Remind me to take medicine at 8 PM
+Can you recogniose this place
 ```
 
 Response:
 
 ```
-Reminder scheduled for 8 PM
+Yes this is your kitchen
 ```
 
 ---
@@ -44,14 +44,6 @@ Today is Monday
 
 ---
 
-Daily schedule:
 
-```
-What do I need to do today?
-```
-
-Response:
-
-```
 You have 2 reminders today.
 ```
