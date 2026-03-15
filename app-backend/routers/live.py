@@ -432,7 +432,7 @@ CRITICAL BEHAVIORAL RULES:
                   if not initial_greeting_sent:
                     initial_greeting_sent = True
                     # This prompt is now sent *after* the first frame, ensuring the model has visual context.
-                    initial_prompt = [types.Part(text=f"The stream has just started. Please greet the user, {user_name}.")]
+                    initial_prompt = [types.Part(text=f"The stream has just started. Please greet the user, {user_name}.Tell the user that you are there to help.")]
                     await session.send_client_content(turns=[types.Content(role="user", parts=initial_prompt)], turn_complete=True)
                     print("✅ Sent initial greeting after first frame was sent.", flush=True)
 
