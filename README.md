@@ -1,6 +1,12 @@
 # GuardianMind: AI Companion for Alzheimer's Assistance
 
-GuardianMind is an web application that acts as a live AI guardian for individuals with Alzheimer's or Elderly people. It uses a real-time, multimodal AI agent powered by the Gemini Live API to provide contextual reminders, identify familiar faces and places, and ensure user safety. By combining a persistent memory store with a live video and audio stream, GuardianMind offers peace of mind to both users and their caregivers.
+GuardianMind is a web application that acts as a live AI guardian for individuals with Alzheimer's disease or elderly users.
+
+The system uses a real-time multimodal AI agent powered by the Gemini Live API to monitor video, audio, and GPS location data. It helps users recognize familiar people and places, track their location, and ensure their safety.
+
+By combining live perception, GPS awareness, and persistent memory, GuardianMind provides peace of mind for both users and caregivers.
+
+This project was developed for the Gemini Live Agent Challenge.
 
 
 ## Features
@@ -36,6 +42,29 @@ GuardianMind is an web application that acts as a live AI guardian for individua
 
 ## Getting Started / Local Development
 
+### Installation
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/driftshieldai-org/Alzheimer_assistance.git
+    cd Alzheimer_assistance
+    ```
+
+2.  **Create a Python virtual environment:**
+    ```bash
+    python -m venv venv
+    ```
+
+3.  **Activate the virtual environment:**
+    *   **On Windows:**
+        ```bash
+        venv\Scripts\activate
+        ```
+    *   **On Linux / macOS:**
+        ```bash
+        source venv/bin/activate
+        ```
+
 ### Prerequisites
 
 To work with the project locally, you will need:
@@ -49,12 +78,12 @@ To work with the project locally, you will need:
 
 The backend service is a FastAPI application that handles photo uploads, AI processing, and database interactions.
 
-1.  **Install dependencies**:
+1.  **Install dependencies** (ensure your virtual environment is active):
     ```bash
     pip install -r app-backend/requirements.txt
     ```
 
-2.  **Set Environment Variables**:
+2.  **Set Environment Variables:**
     Create a `.env` file in the `app-backend` directory or export the following variables:
     -   `GCP_PROJECT_ID`: Your Google Cloud Project ID.
     -   `GCP_REGION`: The Google Cloud region for services (e.g., `us-central1`).
@@ -62,7 +91,7 @@ The backend service is a FastAPI application that handles photo uploads, AI proc
     -   `JWT_SECRET`: A secret key for signing authentication tokens (e.g., `your-super-secret-key`).
     -   `GMAIL_SECRET_ID`: (Optional) The full resource name of the Secret Manager secret containing Gmail OAuth credentials. Required for the emergency email feature.
 
-3.  **Run the server**:
+3.  **Run the server:**
     Ensure you have authenticated with Google Cloud:
     ```bash
     gcloud auth application-default login
@@ -91,41 +120,63 @@ The frontend is a modern JavaScript application that provides the user interface
 
 ## Reproducible Testing Instructions
 
-To test the full functionality of the application, follow these steps after completing the local development setup above.
+This document explains how to reproduce the functionality of GuardianMind.
 
-### 1. Testing Memory Curation (Photo Upload)
+### Environment Setup
 
-This tests the ability for a caregiver to build the AI's knowledge base.
+This assumes you have already followed the **Getting Started / Local Development** steps above to install prerequisites (`pip install -r app-backend/requirements.txt`, `npm install`) and set up your environment variables.
 
-1.  **Navigate to the App:** Open `http://localhost:3000` in your browser.
-2.  **Create an Account:** Sign up for a new account. On the registration page, you can provide an emergency contact email.
-3.  **Go to Store Photo:** From the dashboard, select "Store a Photo".
-4.  **Upload a Photo:**
-    *   Choose to upload a file or take a new photo with your webcam.
-    *   Provide a description for the photo (e.g., "This is the kitchen"). You can type or use the "Hold mic to speak" button.
-    *   Select a date for the photo.
-    *   (Optional) Toggle "Include Location" to ON to save your current GPS coordinates with the memory.
-5.  **Save the Memory:** Click the "Save Photo" button.
-6.  **Verification:**
-    *   You should see a success message: "Information has been stored safely!".
-    *   (Optional) You can verify in the Google Cloud Console that a new image has been added to your GCS bucket and a corresponding document has been created in your Firestore database under `users/{your_user_id}/photos`.
+### Run the Application
 
-### 2. Testing the Live Guardian Agent
+1.  **Start the Backend:**
+    ```bash
+    cd app-backend
+    uvicorn main:app --reload
+    ```
+2.  **Start the Frontend:** In a separate terminal:
+    ```bash
+    cd app-ui
+    npm start
+    ```
+3.  **Open the App:** Navigate to `http://localhost:3000` in your browser. Allow camera, microphone, and location access when prompted by the browser.
 
-This tests the core real-time AI assistance feature.
+### Manual Testing Scenarios
 
-1.  **Navigate to Live Guardian:** From the dashboard, select "Live Guardian".
-2.  **Grant Permissions:** Your browser will ask for permission to use your camera and microphone. Please allow access.
-3.  **Start the Session:** The live stream will begin automatically. The AI, "GuardianMind," will greet you.
-4.  **Test Scene Recognition:**
-    *   Point your camera at the location you just saved (e.g., your kitchen).
-    *   The AI should proactively recognize the scene and say something like, "Hello [Your Name], you are in the kitchen."
-5.  **Test Conversation:** Speak to the AI. It should respond to your questions and comments.
-6.  **Test Emergency Function:**
-    *   Say "I need help" or "I'm lost."
-    *   The AI should recognize the distress call, respond with "Help is on the way," and then attempt to comfort you.
-7.  **Verification:**
-    *   If you configured an emergency email during registration and set up the `GMAIL_SECRET_ID`, an alert email should be sent to the specified address. The email will contain a summary of the situation, a snapshot from the camera, and a Google Maps link to your location.
+#### Test 1 – Face/Scene Recognition
+
+1.  **Create a Memory:** Log in and navigate to "Store a Photo". Upload a picture of a person or a place (e.g., "This is the kitchen").
+2.  **Test Recognition:** Go to the "Live Guardian" screen and point your camera at the person or place you just saved.
+3.  **Expected Result:** The system recognizes the scene/person and the AI verbally identifies it based on the description you provided.
+
+#### Test 2 – Location Tracking
+
+1.  **Start Session:** Begin a "Live Guardian" session.
+2.  **Move:** Physically move with the device to a different location.
+3.  **Expected Result:** The system detects the new GPS coordinates (this is used internally by the AI and is visible in the backend logs).
+
+#### Test 3 – Safe Location Monitoring
+
+1.  **Create a Memory with Location:** When saving a memory for a safe place like "Home", ensure the "Include Location" toggle is ON.
+2.  **Test Monitoring:** Start a "Live Guardian" session and move physically far away from that saved location.
+3.  **Expected Result:** The AI receives a hidden system prompt about your movement and verbally warns you that you are moving away from a known safe area.
+
+#### Test 4 – Help Request
+
+1.  **Initiate Request:** During a "Live Guardian" session, say: `I need help`.
+2.  **Expected Result:** The system recognizes the distress call, the AI responds with a comforting message ("Help is on the way."), and an emergency email alert is sent to the registered caregiver's email address.
+
+### Automated Tests
+
+*(Note: A formal test suite is not yet implemented in this repository.)*
+
+To run the automated test suite (when available):
+```bash
+pytest tests/
+```
+
+### Logs
+
+Application logs are printed directly to the console where the backend service (`uvicorn`) is running. These logs include AI responses, GPS updates, and safety alerts. For production deployments, logs can be viewed in Google Cloud Logging.
 
 ## Backend API
 
