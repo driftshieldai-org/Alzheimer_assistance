@@ -41,6 +41,3 @@ Response:
 ```
 Today is Monday
 ```
-
-You have 2 reminders today.
-```
