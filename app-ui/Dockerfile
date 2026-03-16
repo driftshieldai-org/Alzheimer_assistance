@@ -1,22 +1,30 @@
-# Stage 1: Build the React application with Vite
+# Stage 1: Build the React application
 FROM node:18-alpine AS build
+
 WORKDIR /app
 
+# Copy package.json and package-lock.json
 COPY package*.json ./
-RUN npm install
 
+# Install dependencies
+RUN npm ci
+
+# Copy the rest of the application code
 COPY . .
+
+# Build the application
 RUN npm run build
 
-# Stage 2: Serve using Nginx
-FROM nginx:alpine
+# Stage 2: Serve the application with Nginx
+FROM nginx:1.25-alpine
 
-# Copy the NGINX template file (instead of the static conf)
-COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+# Copy the built static files from the build stage
+COPY --from=build /app/build /usr/share/nginx/html
 
-# Copy the built React files
-COPY --from=build /app/dist /usr/share/nginx/html
+# Copy the Nginx configuration and the entrypoint script
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]
-#CMD ["/bin/sh", "-c", "echo \"window.env = { BACKEND_URL: '$BACKEND_URL' };\" > /usr/share/nginx/html/env-config.js && nginx -g 'daemon off;'"]
+ENTRYPOINT ["/entrypoint.sh"]
