@@ -5,6 +5,7 @@ import SignOutButton from '../components/SignOutButton';
 import BackButton from '../components/BackButton';
 
 export default function StorePhotos({ setCurrentScreen }) {
+const BACKEND_API_BASE = window.runtimeConfig?.BACKEND_URL || "http://localhost:5000";	
  const [photoFile, setPhotoFile] = useState(null); 
  const [photoDescription, setPhotoDescription] = useState('');
  const [photoDate, setPhotoDate] = useState('');
@@ -117,7 +118,7 @@ export default function StorePhotos({ setCurrentScreen }) {
   }
 
   try {
-   const response = await fetch('/api/photos/upload', {
+   const response = await fetch('${BACKEND_API_BASE}/api/photos/upload', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${token}` },
     body: formData
