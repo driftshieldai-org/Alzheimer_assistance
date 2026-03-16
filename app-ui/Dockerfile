@@ -19,7 +19,7 @@ RUN npm run build
 FROM nginx:1.25-alpine
 
 # Copy the built static files from the build stage
-COPY --from=build /app/build /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 
 # Copy the Nginx configuration and the entrypoint script
 COPY nginx.conf /etc/nginx/conf.d/default.conf
