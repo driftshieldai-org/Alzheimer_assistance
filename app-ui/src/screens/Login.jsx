@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import BackButton from '../components/BackButton';
 
 export default function Login({ setCurrentScreen }) {
+  const BACKEND_API_BASE = window.runtimeConfig?.BACKEND_URL || "http://localhost:5000";
   const [loginUserId, setLoginUserId] = useState(''); 
   const [loginPassword, setLoginPassword] = useState('');
   const [loginErrorMsg, setLoginErrorMsg] = useState(''); 
@@ -16,7 +17,7 @@ export default function Login({ setCurrentScreen }) {
       return;
     }
     try {
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('${BACKEND_API_BASE}/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: loginUserId, password: loginPassword })
