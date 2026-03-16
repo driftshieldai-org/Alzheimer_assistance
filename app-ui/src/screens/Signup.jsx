@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import BackButton from '../components/BackButton';
 
 export default function Signup({ setCurrentScreen }) {
+
+  const BACKEND_API_BASE = window.runtimeConfig?.BACKEND_URL || "http://localhost:5000";
+
   const [name, setName] = useState('');
   const [signupUserId, setSignupUserId] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
@@ -72,7 +75,7 @@ export default function Signup({ setCurrentScreen }) {
     const isLocationTracked = trackLocation === 'yes';
 
     try {
-      const response = await fetch('/api/auth/signup', {
+      const response = await fetch('${BACKEND_API_BASE}/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
