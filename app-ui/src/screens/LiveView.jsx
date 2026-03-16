@@ -5,7 +5,7 @@ import SignOutButton from '../components/SignOutButton';
 import BackButton from '../components/BackButton';
 import { AUDIO_WORKLET_CODE, initPlaybackContext, clearAudioQueue, playPcmAudio } from '../utils/audioUtils';
 
-const BACKEND_API_BASE = "https://alzheimer-backend-902738993392.us-central1.run.app";
+const BACKEND_API_BASE = window.runtimeConfig?.BACKEND_URL || "http://localhost:5000";
 
 export default function LiveView({ setCurrentScreen }) {
  const [isLiveAssistanceActive, setIsLiveAssistanceActive] = useState(false);
