@@ -98,9 +98,9 @@ The backend service is a FastAPI application that handles photo uploads, AI proc
     ```
     ```bash
     cd app-backend
-    uvicorn main:app --reload
+    uvicorn main:app --reload --port 5000
     ```
-    The server will be available at `http://127.0.0.1:8000`.
+    The server will be available at `http://127.0.0.1:5000`.
 
 ### Frontend (`app-ui`)
 
