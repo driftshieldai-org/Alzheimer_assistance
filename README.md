@@ -142,6 +142,8 @@ This assumes you have already followed the **Getting Started / Local Development
 
 ### Manual Testing Scenarios
 
+App Link: https://alzheimer-ui-902738993392.us-central1.run.app/
+
 #### Test 1 – Face/Scene Recognition
 
 1.  **Create a Memory:** Log in and navigate to "Store a Photo". Upload a picture of a person or a place (e.g., "This is the kitchen").
